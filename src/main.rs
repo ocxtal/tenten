@@ -176,7 +176,7 @@ fn load_range(file: &str, format: &RangeFormat) -> Result<Vec<Seq>> {
             } else if let Ok(r) = load_range_bed(file) {
                 return Ok(r);
             }
-            return load_range_fasta(file);
+            load_range_fasta(file)
         }
     }
 }
@@ -248,12 +248,12 @@ where
                 continue;
             } else if line.starts_with("@") {
                 return None;
-            } else if line.starts_with("#ref\t") {
-                return Self::parse_seq(self.swap, &line[5..]);
-            } else if line.starts_with("#query\t") {
-                return Self::parse_seq(!self.swap, &line[7..]);
+            } else if let Some(body) = line.strip_prefix("#ref\t") {
+                return Self::parse_seq(self.swap, body);
+            } else if let Some(body) = line.strip_prefix("#query\t") {
+                return Self::parse_seq(!self.swap, body);
             } else {
-                return self.parse_seed(&line);
+                return self.parse_seed(line);
             }
         }
         None
@@ -272,8 +272,8 @@ struct Block {
 
 impl Block {
     fn new(r: &Seq, q: &Seq, base_per_pixel: usize) -> Block {
-        let width = (r.range.len() + base_per_pixel - 1) / base_per_pixel;
-        let height = (q.range.len() + base_per_pixel - 1) / base_per_pixel;
+        let width = r.range.len().div_ceil(base_per_pixel);
+        let height = q.range.len().div_ceil(base_per_pixel);
         Block {
             cnt: vec![[0, 0]; width * height],
             rbase: r.range.start,
@@ -414,7 +414,7 @@ impl BlockBin {
             for (qid, qseq) in self.qseq.iter().enumerate() {
                 let pair = (qid << 32) | rid;
                 let cid = *self.cmap.get(&pair).unwrap();
-                let block = std::mem::replace(&mut self.cnts[cid], Block::default());
+                let block = std::mem::take(&mut self.cnts[cid]);
 
                 v.push(BlockBin {
                     rseq: vec![rseq.clone()],
@@ -439,7 +439,7 @@ impl BlockBin {
         for l in len {
             pos += l;
 
-            let boundary = (pos + self.base_per_pixel - 1) / self.base_per_pixel;
+            let boundary = pos.div_ceil(self.base_per_pixel);
             pos = (boundary + 1) * self.base_per_pixel; // 1px for bar
             boundaries.push(boundary);
         }
@@ -504,7 +504,7 @@ impl BlockBin {
         let to_color = |min: (u8, u8, u8), max: (u8, u8, u8), val: u32| -> (u8, u8, u8) {
             let occ = val as f64 * count_per_seed;
             let occ = scale * occ.log2();
-            let occ = std::cmp::max(0, std::cmp::min(occ as i32, 256)) as u32;
+            let occ = (occ as i32).clamp(0, 256) as u32;
 
             blend(min, max, occ)
         };
@@ -567,7 +567,7 @@ impl NameGen {
     }
 
     fn gen(&mut self, tag: &str) -> String {
-        let id = if let Some(cnt) = self.cnt.get_mut(&tag.to_string()) {
+        let id = if let Some(cnt) = self.cnt.get_mut(tag) {
             *cnt += 1;
             *cnt
         } else {
@@ -593,7 +593,7 @@ impl SeedGen {
         let mut consumed = vec![false; inputs.len()];
         for i in 0..inputs.len() {
             let pat = format!("{{{i}}}");
-            if let Some(_) = gen.find(&pat) {
+            if gen.contains(&pat) {
                 gen = gen.replacen(&pat, &inputs[i], 1);
                 consumed[i] = true;
             }
@@ -602,7 +602,7 @@ impl SeedGen {
             if consumed[i] {
                 continue;
             }
-            if let Some(_) = gen.find("{}") {
+            if gen.contains("{}") {
                 gen = gen.replacen("{}", &inputs[i], 1);
                 consumed[i] = true;
             }
@@ -618,18 +618,25 @@ impl SeedGen {
 
         let cmd = gen.split(" ").collect::<Vec<_>>();
         let (child, output) = if use_stderr {
-            let mut child = Command::new(&cmd[0]).args(&cmd[1..]).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
+            let mut child = Command::new(cmd[0])
+                .args(&cmd[1..])
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
             let output: Box<dyn Read> = Box::new(child.stderr.take().unwrap());
             (child, output)
         } else {
-            let mut child = Command::new(&cmd[0]).args(&cmd[1..]).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+            let mut child = Command::new(cmd[0])
+                .args(&cmd[1..])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
             let output: Box<dyn Read> = Box::new(child.stdout.take().unwrap());
             (child, output)
         };
-        SeedGen {
-            child,
-            output,
-        }
+        SeedGen { child, output }
     }
 }
 
@@ -648,13 +655,10 @@ impl Read for SeedGen {
 }
 
 fn print_args(args: &[String]) {
-    let args = args.iter().map(|x| {
-        if let Some(_) = x.find(' ') {
-            format!("\"{x}\"")
-        } else {
-            x.to_string()
-        }
-    }).collect::<Vec<_>>();
+    let args = args
+        .iter()
+        .map(|x| if x.contains(' ') { format!("\"{x}\"") } else { x.to_string() })
+        .collect::<Vec<_>>();
     let args = args.join(" ");
     eprintln!("args: {args}");
 }
@@ -675,11 +679,11 @@ fn main() {
     let rseq = args
         .reference
         .as_ref()
-        .map_or_else(|| Vec::new(), |x| load_range(x, &args.reference_format).unwrap());
+        .map_or_else(Vec::new, |x| load_range(x, &args.reference_format).unwrap());
     let qseq = args
         .query
         .as_ref()
-        .map_or_else(|| Vec::new(), |x| load_range(x, &args.query_format).unwrap());
+        .map_or_else(Vec::new, |x| load_range(x, &args.query_format).unwrap());
     eprintln!("reference range: {rseq:?}");
     eprintln!("query range: {qseq:?}");
     let (rseq, qseq) = if args.swap_axes { (qseq, rseq) } else { (rseq, qseq) };
@@ -707,11 +711,9 @@ fn main() {
                     b2.plot(&name, args.count_per_seed as f64, args.scale).unwrap();
                 }
             }
-        } else {
-            if b2.count() >= args.min_count {
-                let name = name_gen.gen("");
-                b2.plot(&name, args.count_per_seed as f64, args.scale).unwrap();
-            }
+        } else if b2.count() >= args.min_count {
+            let name = name_gen.gen("");
+            b2.plot(&name, args.count_per_seed as f64, args.scale).unwrap();
         }
     };
 
