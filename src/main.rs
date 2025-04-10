@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::{BufRead, Read};
 use std::ops::Range;
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -28,6 +29,9 @@ pub struct Args {
 
     #[clap(short = 'E', long, help = "use stderr of seed generator, instead of stdout")]
     pub use_stderr: bool,
+
+    #[clap(short = 'f', long, help = "create directory if missing")]
+    pub create_missing_dir: bool,
 
     #[clap(short = 'w', long, help = "bases per pixel", default_value = "100", value_parser = parse_usize)]
     pub base_per_pixel: usize,
@@ -655,6 +659,14 @@ fn print_args(args: &[String]) {
     log::info!("args: {args}");
 }
 
+fn ensure_dir(name: &str) {
+    let name = Path::new(name);
+    let dir = name.parent().unwrap();
+    if !dir.exists() {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+}
+
 fn main() {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
@@ -702,11 +714,17 @@ fn main() {
             for b2 in &split {
                 if b2.count() >= args.min_count {
                     let name = name_gen.gen(&format!("{}.{}", &b2.rseq[0], &b2.qseq[0]));
+                    if args.create_missing_dir {
+                        ensure_dir(&name);
+                    }
                     b2.plot(&name, args.count_per_seed as f64, args.scale).unwrap();
                 }
             }
         } else if b2.count() >= args.min_count {
             let name = name_gen.gen("");
+            if args.create_missing_dir {
+                ensure_dir(&name);
+            }
             b2.plot(&name, args.count_per_seed as f64, args.scale).unwrap();
         }
     };
