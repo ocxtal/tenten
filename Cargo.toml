@@ -1,0 +1,11 @@
+[package]
+name = "seeddot"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+bitfield = "0.14"
+clap = { version = "4.3", features = ["derive"] }
+rand = "0.8"
+plotters = "0.3.6"
