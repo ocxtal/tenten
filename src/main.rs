@@ -243,7 +243,6 @@ where
         while let Some(line) = self.it.next() {
             let line = line.ok()?;
             let line = line.trim();
-            // eprintln!("line: {line}");
             if line.starts_with("[") {
                 continue;
             } else if line.starts_with("@") {
@@ -316,7 +315,7 @@ struct BlockBin {
 
 impl BlockBin {
     fn new(base_per_pixel: usize) -> BlockBin {
-        eprintln!("BlockBin created");
+        log::debug!("BlockBin created");
         BlockBin {
             rseq: Vec::new(),
             qseq: Vec::new(),
@@ -356,7 +355,7 @@ impl BlockBin {
             self.tot_size += block.cnt.len();
             self.cnts.push(block);
         }
-        eprintln!("reference added: {:?}, {:}", &r.name, self.tot_size);
+        log::debug!("reference added: {:?}, {:}", &r.name, self.tot_size);
     }
 
     fn add_query(&mut self, q: &Seq) {
@@ -380,7 +379,7 @@ impl BlockBin {
             self.tot_size += block.cnt.len();
             self.cnts.push(block);
         }
-        eprintln!("query added: {:?}, {:}", &q.name, self.tot_size);
+        log::debug!("query added: {:?}, {:}", &q.name, self.tot_size);
     }
 
     fn append_seed(&mut self, rname: &str, rpos: usize, is_rev: bool, qname: &str, qpos: usize) {
@@ -548,7 +547,7 @@ impl BlockBin {
         }
 
         root.present().unwrap();
-        eprintln!("plotted: {:?} with query {:?} and reference {:?}", name, self.qseq, self.rseq);
+        log::info!("plotted: {:?} with query {:?} and reference {:?}", name, self.qseq, self.rseq);
         Ok(())
     }
 }
@@ -583,6 +582,7 @@ impl NameGen {
 }
 
 struct SeedGen {
+    #[allow(dead_code)]
     child: Child,
     output: Box<dyn Read>,
 }
@@ -614,7 +614,7 @@ impl SeedGen {
             }
         }
         assert!(consumed.iter().all(|&x| x));
-        eprintln!("cmd: {gen}");
+        log::info!("executing seed generator: {gen}");
 
         let cmd = gen.split(" ").collect::<Vec<_>>();
         let (child, output) = if use_stderr {
@@ -643,14 +643,6 @@ impl SeedGen {
 impl Read for SeedGen {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.output.read(buf)
-
-        // let ret = self.output.read(buf);
-        // if let Ok(l) = ret {
-        //     eprintln!("{}", unsafe { std::str::from_utf8_unchecked(&buf[..l]) });
-        //     return Ok(l);
-        // }
-        // eprintln!("err: {ret:?}");
-        // ret
     }
 }
 
@@ -660,10 +652,12 @@ fn print_args(args: &[String]) {
         .map(|x| if x.contains(' ') { format!("\"{x}\"") } else { x.to_string() })
         .collect::<Vec<_>>();
     let args = args.join(" ");
-    eprintln!("args: {args}");
+    log::info!("args: {args}");
 }
 
 fn main() {
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+
     let args = std::env::args().collect::<Vec<_>>();
     print_args(&args);
 
@@ -684,8 +678,8 @@ fn main() {
         .query
         .as_ref()
         .map_or_else(Vec::new, |x| load_range(x, &args.query_format).unwrap());
-    eprintln!("reference range: {rseq:?}");
-    eprintln!("query range: {qseq:?}");
+    log::debug!("reference range: {rseq:?}");
+    log::debug!("query range: {qseq:?}");
     let (rseq, qseq) = if args.swap_axes { (qseq, rseq) } else { (rseq, qseq) };
 
     let newbin = || {
