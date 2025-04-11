@@ -97,8 +97,16 @@ pub struct Args {
     )]
     pub query_format: RangeFormat,
 
-    #[clap(short, long, help = "Output filename (prefix if split plot)", default_value = "out.png")]
+    #[clap(short = 'o', long, help = "Output filename (prefix if split plot)", default_value = "out.png")]
     pub output: String,
+
+    #[clap(
+        short = 'T',
+        long,
+        help = "print to terminal (encoded to iTerm2 image format)",
+        default_value = "false"
+    )]
+    pub output_iterm2: bool,
 }
 
 struct SeedGenCmd {
