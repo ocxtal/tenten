@@ -35,9 +35,6 @@ pub struct Args {
     #[clap(short = 'O', long, help = "Use stdout of seed generator, instead of stderr")]
     pub use_stdout: bool,
 
-    #[clap(short = 'f', long, help = "Create directory if missing")]
-    pub create_missing_dir: bool,
-
     #[clap(short = 'r', long, help = "Bases per pixel", default_value = "100", value_parser = parse_usize)]
     pub base_per_pixel: usize,
 
@@ -77,14 +74,6 @@ pub struct Args {
     )]
     pub min_count: usize,
 
-    #[clap(
-        short = 'p',
-        long,
-        help = "Create plot for each reference/query pairs (split plot)",
-        default_value = "false"
-    )]
-    pub split_plot: bool,
-
     #[clap(short = 'x', long, help = "Swap x/y axes when parsing the seed stream", default_value = "false")]
     pub parse_swap: bool,
 
@@ -123,6 +112,12 @@ pub struct Args {
 
     #[clap(short = 'o', long, help = "Output filename (prefix if split plot)", default_value = "out.png")]
     pub output: String,
+
+    #[clap(short = 'f', long, help = "Create directory if missing")]
+    pub create_missing_dir: bool,
+
+    #[clap(short = 'p', long, help = "Create plot for each reference/query pairs", default_value = "false")]
+    pub split_plot: bool,
 
     #[clap(
         short = 'T',
