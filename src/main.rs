@@ -6,7 +6,7 @@ mod seq;
 use crate::eval::parse_usize;
 use crate::parser::{SeedParser, SeedToken};
 use crate::plotter::BlockBin;
-use crate::seq::{RangeFormat, Seq, load_range};
+use crate::seq::{RangeFormat, Seq, filter_range, load_range};
 use clap::Parser;
 use std::io::{BufRead, Read};
 use std::path::Path;
@@ -203,17 +203,26 @@ struct Context {
 
 impl Context {
     fn new(args: &Args) -> Self {
-        let rseq = args
-            .reference_range
-            .as_ref()
-            .map_or_else(Vec::new, |x| load_range(x, &args.reference_range_format).unwrap());
-        let qseq = args
-            .query_range
-            .as_ref()
-            .map_or_else(Vec::new, |x| load_range(x, &args.query_range_format).unwrap());
+        let (mut rseq, mut qseq) = if let Some(query) = &args.query {
+            let rseq = load_range(&args.reference, &RangeFormat::Fasta).unwrap();
+            let qseq = load_range(query, &RangeFormat::Fasta).unwrap();
+            (rseq, qseq)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+
+        if let Some(reference_range) = &args.reference_range {
+            let rcrop = load_range(reference_range, &args.reference_range_format).unwrap();
+            rseq = filter_range(&rseq, &rcrop);
+        }
+        if let Some(query_range) = &args.query_range {
+            let qcrop = load_range(query_range, &args.query_range_format).unwrap();
+            qseq = filter_range(&qseq, &qcrop);
+        }
+        let (rseq, qseq) = if args.swap_generator { (qseq, rseq) } else { (rseq, qseq) };
+
         log::debug!("reference ranges: {rseq:?}");
         log::debug!("query ranges: {qseq:?}");
-        let (rseq, qseq) = if args.swap_generator { (qseq, rseq) } else { (rseq, qseq) };
 
         let basename = if let Some(basename) = args.output.strip_suffix(".png") {
             basename.to_string()

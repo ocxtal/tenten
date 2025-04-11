@@ -111,10 +111,10 @@ where
                 return None;
             } else if line.starts_with("QR") {
                 return self.parse_query_mm2(line);
-            } else if line.starts_with("RS") {
-                // repeat length; ignore
             } else if line.starts_with("SD") {
                 return self.parse_seed_mm2(line);
+            } else if line.starts_with("CN") || line.starts_with("QM") || line.starts_with("QT") || line.starts_with("RS") {
+                // ignore
             } else if let Some(body) = line.strip_prefix("#ref\t") {
                 return Self::parse_seq(self.swap, body);
             } else if let Some(body) = line.strip_prefix("#query\t") {
