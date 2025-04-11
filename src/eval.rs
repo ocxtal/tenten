@@ -1260,6 +1260,7 @@ impl Rpn {
         Ok(Rpn { rpn })
     }
 
+    #[allow(dead_code)]
     pub fn tokens(&self) -> Vec<Token> {
         self.rpn.iter().map(|x| x.0).collect::<Vec<_>>()
     }
@@ -1476,6 +1477,7 @@ fn test_parse_delimited() {
     assert!(parse_delimited("+,", ",").is_err());
 }
 
+#[allow(dead_code)]
 pub fn parse_usize_pair(s: &str) -> Result<(usize, usize)> {
     let vals = parse_delimited(s, ",")?;
     if s.is_empty() || vals.len() > 2 {
