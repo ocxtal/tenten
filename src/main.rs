@@ -277,7 +277,6 @@ impl Context {
     }
 
     fn flush(&mut self) {
-        log::debug!("flush");
         let bin = std::mem::replace(&mut self.bin, BlockBin::new(&self.rseq, &self.qseq, self.args.base_per_pixel));
         if self.args.split_plot {
             let split = bin.split();
@@ -349,6 +348,6 @@ fn main() {
             SeedToken::Seed(rname, rpos, is_rev, qname, qpos) => ctx.append_seed(&rname, rpos, is_rev, &qname, qpos),
         }
     }
-    log::debug!("parser end");
+    log::debug!("seed generator reached end. cleaning...");
     ctx.flush();
 }
