@@ -1,12 +1,12 @@
 mod eval;
-mod seq;
 mod parser;
 mod plotter;
+mod seq;
 
 use crate::eval::parse_usize;
-use crate::seq::{load_range, Seq, RangeFormat};
-use crate::parser::{SeedToken, SeedParser};
+use crate::parser::{SeedParser, SeedToken};
 use crate::plotter::BlockBin;
+use crate::seq::{load_range, RangeFormat, Seq};
 use clap::{CommandFactory, Parser};
 use std::io::{BufRead, Read};
 use std::path::Path;
@@ -175,7 +175,12 @@ impl Context {
 
     fn create_name(&self, bin: &BlockBin) -> String {
         if self.args.split_plot {
-            format!("{}.{}.{}.png", &self.basename, bin.rseq[0].to_path_string(), bin.qseq[0].to_path_string())
+            format!(
+                "{}.{}.{}.png",
+                &self.basename,
+                bin.rseq[0].to_path_string(),
+                bin.qseq[0].to_path_string()
+            )
         } else {
             format!("{}.png", &self.basename)
         }
