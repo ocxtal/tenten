@@ -18,7 +18,7 @@ pub struct Args {
     #[clap(help = "inputs")]
     pub inputs: Vec<String>,
 
-    #[clap(short = 'P', long, help = "seed generator template")]
+    #[clap(short = 'P', long, help = "seed generator command template")]
     pub seed_generator: Option<String>,
 
     #[clap(short = 'O', long, help = "use stdout of seed generator, instead of stderr")]
@@ -116,13 +116,13 @@ struct SeedGenCmd {
 }
 
 impl SeedGenCmd {
-    fn new(gen: &str, inputs: &[String], use_stdout: bool) -> SeedGenCmd {
-        let mut gen = gen.to_string();
+    fn new(cmd: &str, inputs: &[String], use_stdout: bool) -> SeedGenCmd {
+        let mut cmd = cmd.to_string();
         let mut consumed = vec![false; inputs.len()];
         for i in 0..inputs.len() {
             let pat = format!("{{{i}}}");
-            if gen.contains(&pat) {
-                gen = gen.replacen(&pat, &inputs[i], 1);
+            if cmd.contains(&pat) {
+                cmd = cmd.replacen(&pat, &inputs[i], 1);
                 consumed[i] = true;
             }
         }
@@ -130,21 +130,21 @@ impl SeedGenCmd {
             if consumed[i] {
                 continue;
             }
-            if gen.contains("{}") {
-                gen = gen.replacen("{}", &inputs[i], 1);
+            if cmd.contains("{}") {
+                cmd = cmd.replacen("{}", &inputs[i], 1);
                 consumed[i] = true;
             }
         }
         for i in 0..inputs.len() {
             if !consumed[i] {
-                gen = format!("{0} {1}", gen, inputs[i]);
+                cmd = format!("{0} {1}", cmd, inputs[i]);
                 consumed[i] = true;
             }
         }
         assert!(consumed.iter().all(|&x| x));
-        log::info!("executing seed generator: {gen}");
+        log::info!("executing seed generator: {cmd}");
 
-        let cmd = gen.split(" ").collect::<Vec<_>>();
+        let cmd = cmd.split(" ").collect::<Vec<_>>();
         let (child, output) = if use_stdout {
             let mut child = Command::new(cmd[0])
                 .args(&cmd[1..])
@@ -312,8 +312,8 @@ fn main() {
     }
     print_args(&std::env::args().collect::<Vec<_>>());
 
-    let file: Box<dyn Read> = if let Some(gen) = &args.seed_generator {
-        Box::new(SeedGenCmd::new(gen, &args.inputs, args.use_stdout))
+    let file: Box<dyn Read> = if let Some(cmd) = &args.seed_generator {
+        Box::new(SeedGenCmd::new(cmd, &args.inputs, args.use_stdout))
     } else {
         assert!(args.inputs.len() == 1);
         Box::new(std::fs::File::open(&args.inputs[0]).unwrap())
