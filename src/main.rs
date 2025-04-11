@@ -1,19 +1,18 @@
 mod eval;
+mod seq;
 mod parser;
 mod plotter;
-mod seq;
 
 use crate::eval::parse_usize;
-use crate::parser::{SeedParser, SeedToken};
+use crate::seq::{load_range, Seq, RangeFormat};
+use crate::parser::{SeedToken, SeedParser};
 use crate::plotter::BlockBin;
-use crate::seq::{load_range, RangeFormat, Seq};
 use clap::{CommandFactory, Parser};
-use std::collections::HashMap;
 use std::io::{BufRead, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
-#[derive(Debug, Parser)]
+#[derive(Clone, Debug, Parser)]
 #[command(version)]
 pub struct Args {
     #[clap(help = "inputs")]
@@ -72,43 +71,14 @@ pub struct Args {
     pub output: String,
 }
 
-struct NameGen {
-    base: String,
-    cnt: HashMap<String, usize>,
-}
-
-impl NameGen {
-    fn new(base: &str) -> NameGen {
-        NameGen {
-            base: base.to_string(),
-            cnt: HashMap::new(),
-        }
-    }
-
-    fn gen(&mut self, tag: &str) -> String {
-        let id = if let Some(cnt) = self.cnt.get_mut(tag) {
-            *cnt += 1;
-            *cnt
-        } else {
-            self.cnt.insert(tag.to_string(), 0);
-            0
-        };
-        if tag.is_empty() {
-            format!("{}.{}.png", &self.base, id)
-        } else {
-            format!("{}.{}.{}.png", &self.base, tag, id)
-        }
-    }
-}
-
-struct SeedGen {
+struct SeedGenCmd {
     #[allow(dead_code)]
     child: Child,
     output: Box<dyn Read>,
 }
 
-impl SeedGen {
-    fn new(gen: &str, inputs: &[String], use_stdout: bool) -> SeedGen {
+impl SeedGenCmd {
+    fn new(gen: &str, inputs: &[String], use_stdout: bool) -> SeedGenCmd {
         let mut gen = gen.to_string();
         let mut consumed = vec![false; inputs.len()];
         for i in 0..inputs.len() {
@@ -156,13 +126,127 @@ impl SeedGen {
             let output: Box<dyn Read> = Box::new(child.stderr.take().unwrap());
             (child, output)
         };
-        SeedGen { child, output }
+        SeedGenCmd { child, output }
     }
 }
 
-impl Read for SeedGen {
+impl Read for SeedGenCmd {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.output.read(buf)
+    }
+}
+
+struct Context {
+    basename: String,
+    rseq: Vec<Seq>,
+    qseq: Vec<Seq>,
+    bin: BlockBin,
+    args: Args,
+}
+
+impl Context {
+    fn new(args: &Args) -> Self {
+        let rseq = args
+            .reference
+            .as_ref()
+            .map_or_else(Vec::new, |x| load_range(x, &args.reference_format).unwrap());
+        let qseq = args
+            .query
+            .as_ref()
+            .map_or_else(Vec::new, |x| load_range(x, &args.query_format).unwrap());
+        log::debug!("reference ranges: {rseq:?}");
+        log::debug!("query ranges: {qseq:?}");
+        let (rseq, qseq) = if args.swap_axes { (qseq, rseq) } else { (rseq, qseq) };
+
+        let basename = if let Some(basename) = args.output.strip_suffix(".png") {
+            basename.to_string()
+        } else {
+            args.output.clone()
+        };
+
+        Context {
+            basename,
+            rseq,
+            qseq,
+            bin: BlockBin::new(args.base_per_pixel),
+            args: args.clone(),
+        }
+    }
+
+    fn create_name(&self, bin: &BlockBin) -> String {
+        if self.args.split_plot {
+            format!("{}.{}.{}.png", &self.basename, bin.rseq[0].to_path_string(), bin.qseq[0].to_path_string())
+        } else {
+            format!("{}.png", &self.basename)
+        }
+    }
+
+    fn ensure_dir(&self, name: &str) {
+        if !self.args.create_missing_dir {
+            return;
+        }
+        let name = Path::new(name);
+        let dir = name.parent().unwrap();
+        if !dir.exists() {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+    }
+
+    fn plot(&self, bin: &BlockBin) {
+        let name = self.create_name(bin);
+
+        let count = bin.count();
+        if count < self.args.min_count {
+            log::info!("skip {} as count {} < {}", &name, count, self.args.min_count);
+            return;
+        }
+        self.ensure_dir(&name);
+        bin.plot(&name, self.args.count_per_seed as f64, self.args.scale).unwrap();
+    }
+
+    fn pop_bin(&mut self) -> BlockBin {
+        let mut bin = BlockBin::new(self.args.base_per_pixel);
+        for r in &self.rseq {
+            bin.add_reference(r);
+        }
+        for q in &self.qseq {
+            bin.add_query(q);
+        }
+        std::mem::replace(&mut self.bin, bin)
+    }
+
+    fn flush(&mut self) {
+        let bin = self.pop_bin();
+        if self.args.split_plot {
+            let split = bin.split();
+            for bin in &split {
+                self.plot(&bin);
+            }
+        } else {
+            self.plot(&bin);
+        }
+    }
+
+    fn add_reference(&mut self, r: &Seq) {
+        if self.args.split_plot && self.bin.has_plane() {
+            self.flush();
+        }
+        if self.rseq.is_empty() {
+            self.bin.add_reference(&r);
+        }
+    }
+
+    fn add_query(&mut self, q: &Seq) {
+        if self.args.split_plot && self.bin.has_plane() {
+            self.flush();
+        }
+        if self.qseq.is_empty() {
+            self.bin.add_query(&q);
+        }
+    }
+
+    fn append_seed(&mut self, rname: &str, rpos: usize, is_rev: bool, qname: &str, qpos: usize) {
+        self.bin.append_seed(rname, rpos, is_rev, qname, qpos);
     }
 }
 
@@ -173,14 +257,6 @@ fn print_args(args: &[String]) {
         .collect::<Vec<_>>();
     let args = args.join(" ");
     log::info!("args: {args}");
-}
-
-fn ensure_dir(name: &str) {
-    let name = Path::new(name);
-    let dir = name.parent().unwrap();
-    if !dir.exists() {
-        std::fs::create_dir_all(dir).unwrap();
-    }
 }
 
 fn main() {
@@ -194,83 +270,21 @@ fn main() {
     print_args(&std::env::args().collect::<Vec<_>>());
 
     let file: Box<dyn Read> = if let Some(gen) = &args.seed_generator {
-        Box::new(SeedGen::new(gen, &args.inputs, args.use_stdout))
+        Box::new(SeedGenCmd::new(gen, &args.inputs, args.use_stdout))
     } else {
         assert!(args.inputs.len() == 1);
         Box::new(std::fs::File::open(&args.inputs[0]).unwrap())
     };
     let file = std::io::BufReader::new(file);
 
-    let rseq = args
-        .reference
-        .as_ref()
-        .map_or_else(Vec::new, |x| load_range(x, &args.reference_format).unwrap());
-    let qseq = args
-        .query
-        .as_ref()
-        .map_or_else(Vec::new, |x| load_range(x, &args.query_format).unwrap());
-    log::debug!("reference range: {rseq:?}");
-    log::debug!("query range: {qseq:?}");
-    let (rseq, qseq) = if args.swap_axes { (qseq, rseq) } else { (rseq, qseq) };
-
-    let newbin = || {
-        let mut bin = BlockBin::new(args.base_per_pixel);
-        for r in &rseq {
-            bin.add_reference(r);
-        }
-        for q in &qseq {
-            bin.add_query(q);
-        }
-        bin
-    };
-    let mut bin = newbin();
-
-    let mut name_gen = NameGen::new(&args.output);
-    let mut flush = |b: &mut BlockBin| {
-        let b2 = std::mem::replace(b, newbin());
-        if args.split_plot {
-            let split = b2.split();
-            for b2 in &split {
-                if b2.count() >= args.min_count {
-                    let name = name_gen.gen(&format!("{}.{}", &b2.rseq[0], &b2.qseq[0]));
-                    if args.create_missing_dir {
-                        ensure_dir(&name);
-                    }
-                    b2.plot(&name, args.count_per_seed as f64, args.scale).unwrap();
-                }
-            }
-        } else if b2.count() >= args.min_count {
-            let name = name_gen.gen("");
-            if args.create_missing_dir {
-                ensure_dir(&name);
-            }
-            b2.plot(&name, args.count_per_seed as f64, args.scale).unwrap();
-        }
-    };
-
+    let mut ctx = Context::new(&args);
     let mut parser = SeedParser::new(file.lines(), args.swap_axes);
     while let Some(token) = parser.next() {
         match token {
-            SeedToken::NewReference(r) => {
-                if args.split_plot && bin.has_plane() {
-                    flush(&mut bin);
-                }
-                if rseq.is_empty() {
-                    bin.add_reference(&r);
-                }
-            }
-            SeedToken::NewQuery(q) => {
-                if args.split_plot && bin.has_plane() {
-                    flush(&mut bin);
-                }
-                if qseq.is_empty() {
-                    bin.add_query(&q);
-                }
-            }
-            SeedToken::Seed(rname, rpos, is_rev, qname, qpos) => {
-                bin.append_seed(&rname, rpos, is_rev, &qname, qpos);
-            }
+            SeedToken::NewReference(r) => ctx.add_reference(&r),
+            SeedToken::NewQuery(q) => ctx.add_query(&q),
+            SeedToken::Seed(rname, rpos, is_rev, qname, qpos) => ctx.append_seed(&rname, rpos, is_rev, &qname, qpos),
         }
     }
-    flush(&mut bin);
+    ctx.flush();
 }

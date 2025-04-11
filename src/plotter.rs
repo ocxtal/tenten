@@ -1,4 +1,4 @@
-// @file block.rs
+// @file plotter.rs
 // @author Hajime Suzuki
 // @brief dotplot plane data structure
 

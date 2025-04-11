@@ -22,6 +22,12 @@ pub struct Seq {
     pub range: Range<usize>,
 }
 
+impl Seq {
+    pub fn to_path_string(&self) -> String {
+        format!("{}_{}_{}", self.name, self.range.start, self.range.end)
+    }
+}
+
 impl fmt::Display for Seq {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}:{}-{}", self.name, self.range.start, self.range.end)
