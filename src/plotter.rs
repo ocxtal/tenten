@@ -3,7 +3,7 @@
 // @brief dotplot plane data structure
 
 use crate::Seq;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use plotters::prelude::*;
 use std::collections::{HashMap, HashSet};
 

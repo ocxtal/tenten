@@ -6,8 +6,8 @@ mod seq;
 use crate::eval::parse_usize;
 use crate::parser::{SeedParser, SeedToken};
 use crate::plotter::BlockBin;
-use crate::seq::{load_range, RangeFormat, Seq};
-use clap::{CommandFactory, Parser};
+use crate::seq::{RangeFormat, Seq, load_range};
+use clap::Parser;
 use std::io::{BufRead, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -15,8 +15,11 @@ use std::process::{Child, Command, Stdio};
 #[derive(Clone, Debug, Parser)]
 #[command(version)]
 pub struct Args {
-    #[clap(help = "inputs")]
-    pub inputs: Vec<String>,
+    #[clap(help = "reference or seed file")]
+    pub reference: String,
+
+    #[clap(help = "query")]
+    pub query: Option<String>,
 
     #[clap(short = 'P', long, help = "seed generator command template")]
     pub seed_generator: Option<String>,
@@ -75,8 +78,12 @@ pub struct Args {
     #[clap(short = 'X', long, help = "swap x/y axes when plotting", default_value = "false")]
     pub plot_swap: bool,
 
-    #[clap(short = 'r', long, help = "reference range file in fasta, bed, or \"chr7:6000000-6300000\"")]
-    pub reference: Option<String>,
+    #[clap(
+        short = 'r',
+        long,
+        help = "crop reference sequences by the ranges in this file. in fasta, bed, or \"chr7:6000000-6300000\""
+    )]
+    pub reference_range: Option<String>,
 
     #[clap(
         short = 'R',
@@ -84,10 +91,14 @@ pub struct Args {
         help = "force treat the reference range file in a specific format",
         default_value = "infer"
     )]
-    pub reference_format: RangeFormat,
+    pub reference_range_format: RangeFormat,
 
-    #[clap(short = 'q', long, help = "query range file")]
-    pub query: Option<String>,
+    #[clap(
+        short = 'q',
+        long,
+        help = "crop query sequences by the ranges in this file. in fasta, bed, or \"chr7:6000000-6300000\""
+    )]
+    pub query_range: Option<String>,
 
     #[clap(
         short = 'Q',
@@ -95,7 +106,7 @@ pub struct Args {
         help = "force treat the query range file in a specific format",
         default_value = "infer"
     )]
-    pub query_format: RangeFormat,
+    pub query_range_format: RangeFormat,
 
     #[clap(short = 'o', long, help = "Output filename (prefix if split plot)", default_value = "out.png")]
     pub output: String,
@@ -109,14 +120,14 @@ pub struct Args {
     pub output_iterm2: bool,
 }
 
-struct SeedGenCmd {
+struct SeedGeneratorCommand {
     #[allow(dead_code)]
     child: Child,
     output: Box<dyn Read>,
 }
 
-impl SeedGenCmd {
-    fn new(cmd: &str, inputs: &[String], use_stdout: bool) -> SeedGenCmd {
+impl SeedGeneratorCommand {
+    fn new(cmd: &str, inputs: &[&str], use_stdout: bool) -> SeedGeneratorCommand {
         let mut cmd = cmd.to_string();
         let mut consumed = vec![false; inputs.len()];
         for i in 0..inputs.len() {
@@ -164,11 +175,11 @@ impl SeedGenCmd {
             let output: Box<dyn Read> = Box::new(child.stderr.take().unwrap());
             (child, output)
         };
-        SeedGenCmd { child, output }
+        SeedGeneratorCommand { child, output }
     }
 }
 
-impl Read for SeedGenCmd {
+impl Read for SeedGeneratorCommand {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.output.read(buf)
     }
@@ -185,13 +196,13 @@ struct Context {
 impl Context {
     fn new(args: &Args) -> Self {
         let rseq = args
-            .reference
+            .reference_range
             .as_ref()
-            .map_or_else(Vec::new, |x| load_range(x, &args.reference_format).unwrap());
+            .map_or_else(Vec::new, |x| load_range(x, &args.reference_range_format).unwrap());
         let qseq = args
-            .query
+            .query_range
             .as_ref()
-            .map_or_else(Vec::new, |x| load_range(x, &args.query_format).unwrap());
+            .map_or_else(Vec::new, |x| load_range(x, &args.query_range_format).unwrap());
         log::debug!("reference ranges: {rseq:?}");
         log::debug!("query ranges: {qseq:?}");
         let (rseq, qseq) = if args.parse_swap { (qseq, rseq) } else { (rseq, qseq) };
@@ -306,17 +317,17 @@ fn main() {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
     let args = Args::parse();
-    if args.inputs.is_empty() {
-        Args::command().print_help().unwrap();
-        return;
-    }
     print_args(&std::env::args().collect::<Vec<_>>());
 
-    let file: Box<dyn Read> = if let Some(cmd) = &args.seed_generator {
-        Box::new(SeedGenCmd::new(cmd, &args.inputs, args.use_stdout))
+    let file: Box<dyn Read> = if let Some(query) = &args.query {
+        let seed_generator = args.seed_generator.as_ref().unwrap();
+        Box::new(SeedGeneratorCommand::new(
+            seed_generator,
+            &[&args.reference, query],
+            args.use_stdout,
+        ))
     } else {
-        assert!(args.inputs.len() == 1);
-        Box::new(std::fs::File::open(&args.inputs[0]).unwrap())
+        Box::new(std::fs::File::open(&args.reference).unwrap())
     };
     let file = std::io::BufReader::new(file);
 

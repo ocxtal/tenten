@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @brief integer math expression evaluator (for command-line arguments)
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use std::collections::HashMap;
 use std::iter::Peekable;
 use std::ops::Range;
@@ -234,11 +234,7 @@ where
     }
 
     let var = vars?.get(v.as_slice())?;
-    if var.is_array {
-        Some(VarArr(var.id))
-    } else {
-        Some(Var(var.id, 1))
-    }
+    if var.is_array { Some(VarArr(var.id)) } else { Some(Var(var.id, 1)) }
 }
 
 #[allow(clippy::unused_peekable)]

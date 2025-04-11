@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @brief sequence (name, range) container and parsers
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use clap::ValueEnum;
 use std::fmt;
 use std::io::BufRead;
