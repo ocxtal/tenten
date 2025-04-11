@@ -2,7 +2,7 @@ mod eval;
 
 use crate::eval::parse_usize;
 use anyhow::{anyhow, Result};
-use clap::{Parser, ValueEnum};
+use clap::{CommandFactory, Parser, ValueEnum};
 use plotters::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -20,6 +20,7 @@ pub enum RangeFormat {
 }
 
 #[derive(Debug, Parser)]
+#[command(version)]
 pub struct Args {
     #[clap(help = "inputs")]
     pub inputs: Vec<String>,
@@ -670,12 +671,15 @@ fn ensure_dir(name: &str) {
 fn main() {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
-    let args = std::env::args().collect::<Vec<_>>();
-    print_args(&args);
-
     let args = Args::parse();
+    if args.inputs.is_empty() {
+        Args::command().print_help().unwrap();
+        return;
+    }
+    print_args(&std::env::args().collect::<Vec<_>>());
+
     let file: Box<dyn Read> = if let Some(gen) = &args.seed_generator {
-        Box::new(SeedGen::new(gen, &args.inputs, args.use_stderr))
+        Box::new(SeedGen::new(gen, &args.inputs, args.use_stdout))
     } else {
         assert!(args.inputs.len() == 1);
         Box::new(std::fs::File::open(&args.inputs[0]).unwrap())
