@@ -15,34 +15,42 @@ use std::process::{Child, Command, Stdio};
 #[derive(Clone, Debug, Parser)]
 #[command(version)]
 pub struct Args {
-    #[clap(help = "reference or seed file")]
+    #[clap(
+        help = "Reference sequence (if query is passed) or seeds in minimap2-debug-dump format",
+        name = "REFERENCE or SEED FILE"
+    )]
     pub reference: String,
 
-    #[clap(help = "query")]
+    #[clap(help = "Query sequence")]
     pub query: Option<String>,
 
-    #[clap(short = 'P', long, help = "seed generator command template")]
+    #[clap(
+        short = 'P',
+        long,
+        help = "Seed generator command template",
+        default_value = "minimap2 -t1 --print-seeds {0} {1}"
+    )]
     pub seed_generator: Option<String>,
 
-    #[clap(short = 'O', long, help = "use stdout of seed generator, instead of stderr")]
+    #[clap(short = 'O', long, help = "Use stdout of seed generator, instead of stderr")]
     pub use_stdout: bool,
 
-    #[clap(short = 'f', long, help = "create directory if missing")]
+    #[clap(short = 'f', long, help = "Create directory if missing")]
     pub create_missing_dir: bool,
 
-    #[clap(short = 'r', long, help = "bases per pixel", default_value = "100", value_parser = parse_usize)]
+    #[clap(short = 'r', long, help = "Bases per pixel", default_value = "100", value_parser = parse_usize)]
     pub base_per_pixel: usize,
 
-    #[clap(short = 'w', long, help = "maximum width in pixel", default_value = "6400", value_parser = parse_usize)]
+    #[clap(short = 'W', long, help = "Maximum width in pixel", default_value = "6400", value_parser = parse_usize)]
     pub max_width: usize,
 
-    #[clap(short = 'h', long, help = "maximum height in pixel", default_value = "6400", value_parser = parse_usize)]
+    #[clap(short = 'H', long, help = "Maximum height in pixel", default_value = "6400", value_parser = parse_usize)]
     pub max_height: usize,
 
     #[clap(
         short = 'D',
         long,
-        help = "density of seeds (#per 1kbp square) corresponds to 50% heatmap scale",
+        help = "Density of seeds (#per 1kbp square) that corresponds to 50% heatmap scale",
         default_value = "100.0"
     )]
     pub density: f64,
@@ -50,45 +58,50 @@ pub struct Args {
     #[clap(
         short = 'M',
         long,
-        help = "do not output image if seed density is less than this value",
+        help = "Do not output image if seed density is less than this value",
         default_value = "0"
     )]
     pub min_density: f64,
 
-    #[clap(short = 'c', long, help = "count per seed", default_value = "1", value_parser = parse_usize)]
+    #[clap(short = 'c', long, help = "Count per seed", default_value = "1", value_parser = parse_usize)]
     pub count_per_seed: usize,
 
-    #[clap(short = 's', long, help = "scaling factor", default_value = "25")]
+    #[clap(short = 's', long, help = "Scaling factor", default_value = "25")]
     pub scale: f64,
 
     #[clap(
         short = 'm',
         long,
-        help = "do not output image if #seed is less than this value",
+        help = "Do not output image if #seed is less than this value",
         default_value = "0"
     )]
     pub min_count: usize,
 
-    #[clap(short = 'p', long, help = "split plot", default_value = "false")]
+    #[clap(
+        short = 'p',
+        long,
+        help = "Create plot for each reference/query pairs (split plot)",
+        default_value = "false"
+    )]
     pub split_plot: bool,
 
-    #[clap(short = 'x', long, help = "swap x/y axes when parsing the seed stream", default_value = "false")]
+    #[clap(short = 'x', long, help = "Swap x/y axes when parsing the seed stream", default_value = "false")]
     pub parse_swap: bool,
 
-    #[clap(short = 'X', long, help = "swap x/y axes when plotting", default_value = "false")]
+    #[clap(short = 'X', long, help = "Swap x/y axes when plotting", default_value = "false")]
     pub plot_swap: bool,
 
     #[clap(
         short = 'r',
         long,
-        help = "crop reference sequences by the ranges in this file. in fasta, bed, or \"chr7:6000000-6300000\""
+        help = "Crop reference sequences by the ranges in this file. in fasta, bed, or \"chr7:6000000-6300000\""
     )]
     pub reference_range: Option<String>,
 
     #[clap(
         short = 'R',
         long,
-        help = "force treat the reference range file in a specific format",
+        help = "Force treat the reference range file in a specific format",
         default_value = "infer"
     )]
     pub reference_range_format: RangeFormat,
@@ -96,14 +109,14 @@ pub struct Args {
     #[clap(
         short = 'q',
         long,
-        help = "crop query sequences by the ranges in this file. in fasta, bed, or \"chr7:6000000-6300000\""
+        help = "Crop query sequences by the ranges in this file. in fasta, bed, or \"chr7:6000000-6300000\""
     )]
     pub query_range: Option<String>,
 
     #[clap(
         short = 'Q',
         long,
-        help = "force treat the query range file in a specific format",
+        help = "Force treat the query range file in a specific format",
         default_value = "infer"
     )]
     pub query_range_format: RangeFormat,
@@ -114,7 +127,7 @@ pub struct Args {
     #[clap(
         short = 'T',
         long,
-        help = "print to terminal (encoded to iTerm2 image format)",
+        help = "Print to terminal (encoded to iTerm2 image format)",
         default_value = "false"
     )]
     pub output_iterm2: bool,
