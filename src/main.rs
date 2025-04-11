@@ -16,7 +16,7 @@ use std::process::{Child, Command, Stdio};
 #[command(version)]
 pub struct Args {
     #[clap(
-        help = "Reference sequence (if query is passed) or seeds in minimap2-debug-dump format",
+        help = "Reference sequence (if query is passed) or seeds in minimap2 --print-seeds format",
         name = "REFERENCE or SEED FILE"
     )]
     pub reference: String,
@@ -74,11 +74,11 @@ pub struct Args {
     )]
     pub min_count: usize,
 
-    #[clap(short = 'x', long, help = "Swap x/y axes when parsing the seed stream", default_value = "false")]
-    pub parse_swap: bool,
+    #[clap(short = 'x', long, help = "Swap reference and query for seed generator", default_value = "false")]
+    pub swap_generator: bool,
 
-    #[clap(short = 'X', long, help = "Swap x/y axes when plotting", default_value = "false")]
-    pub plot_swap: bool,
+    #[clap(short = 'X', long, help = "Swap x/y axes of the output plots", default_value = "false")]
+    pub swap_plot_axes: bool,
 
     #[clap(
         short = 'r',
@@ -116,13 +116,13 @@ pub struct Args {
     #[clap(short = 'f', long, help = "Create directory if missing")]
     pub create_missing_dir: bool,
 
-    #[clap(short = 'p', long, help = "Create plot for each reference/query pairs", default_value = "false")]
+    #[clap(short = 'p', long, help = "Create plot for each reference/query pair", default_value = "false")]
     pub split_plot: bool,
 
     #[clap(
         short = 'T',
         long,
-        help = "Print to terminal (encoded to iTerm2 image format)",
+        help = "Print plot to terminal (encoded to iTerm2 image format)",
         default_value = "false"
     )]
     pub output_iterm2: bool,
@@ -141,7 +141,7 @@ impl SeedGeneratorCommand {
         for i in 0..inputs.len() {
             let pat = format!("{{{i}}}");
             if cmd.contains(&pat) {
-                cmd = cmd.replacen(&pat, &inputs[i], 1);
+                cmd = cmd.replacen(&pat, inputs[i], 1);
                 consumed[i] = true;
             }
         }
@@ -150,7 +150,7 @@ impl SeedGeneratorCommand {
                 continue;
             }
             if cmd.contains("{}") {
-                cmd = cmd.replacen("{}", &inputs[i], 1);
+                cmd = cmd.replacen("{}", inputs[i], 1);
                 consumed[i] = true;
             }
         }
@@ -213,7 +213,7 @@ impl Context {
             .map_or_else(Vec::new, |x| load_range(x, &args.query_range_format).unwrap());
         log::debug!("reference ranges: {rseq:?}");
         log::debug!("query ranges: {qseq:?}");
-        let (rseq, qseq) = if args.parse_swap { (qseq, rseq) } else { (rseq, qseq) };
+        let (rseq, qseq) = if args.swap_generator { (qseq, rseq) } else { (rseq, qseq) };
 
         let basename = if let Some(basename) = args.output.strip_suffix(".png") {
             basename.to_string()
@@ -329,18 +329,19 @@ fn main() {
 
     let file: Box<dyn Read> = if let Some(query) = &args.query {
         let seed_generator = args.seed_generator.as_ref().unwrap();
-        Box::new(SeedGeneratorCommand::new(
-            seed_generator,
-            &[&args.reference, query],
-            args.use_stdout,
-        ))
+        let inputs: [&str; 2] = if args.swap_generator {
+            [query, &args.reference]
+        } else {
+            [&args.reference, query]
+        };
+        Box::new(SeedGeneratorCommand::new(seed_generator, inputs.as_slice(), args.use_stdout))
     } else {
         Box::new(std::fs::File::open(&args.reference).unwrap())
     };
     let file = std::io::BufReader::new(file);
 
     let mut ctx = Context::new(&args);
-    let mut parser = SeedParser::new(file.lines(), args.parse_swap);
+    let mut parser = SeedParser::new(file.lines(), args.swap_generator);
     while let Some(token) = parser.next() {
         match token {
             SeedToken::NewReference(r) => ctx.add_reference(&r),
