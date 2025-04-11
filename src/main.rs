@@ -230,11 +230,12 @@ impl Context {
             args.output.clone()
         };
 
+        let bin = BlockBin::new(&rseq, &qseq, args.base_per_pixel);
         Context {
             basename,
             rseq,
             qseq,
-            bin: BlockBin::new(args.base_per_pixel),
+            bin,
             args: args.clone(),
         }
     }
@@ -275,19 +276,9 @@ impl Context {
         bin.plot(&name, self.args.count_per_seed as f64, self.args.scale).unwrap();
     }
 
-    fn pop_bin(&mut self) -> BlockBin {
-        let mut bin = BlockBin::new(self.args.base_per_pixel);
-        for r in &self.rseq {
-            bin.add_reference(r);
-        }
-        for q in &self.qseq {
-            bin.add_query(q);
-        }
-        std::mem::replace(&mut self.bin, bin)
-    }
-
     fn flush(&mut self) {
-        let bin = self.pop_bin();
+        log::debug!("flush");
+        let bin = std::mem::replace(&mut self.bin, BlockBin::new(&self.rseq, &self.qseq, self.args.base_per_pixel));
         if self.args.split_plot {
             let split = bin.split();
             for bin in &split {
@@ -358,5 +349,6 @@ fn main() {
             SeedToken::Seed(rname, rpos, is_rev, qname, qpos) => ctx.append_seed(&rname, rpos, is_rev, &qname, qpos),
         }
     }
+    log::debug!("parser end");
     ctx.flush();
 }

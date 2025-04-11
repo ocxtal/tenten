@@ -6,12 +6,13 @@ use crate::Seq;
 use anyhow::{Result, anyhow};
 use plotters::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 #[derive(Default)]
 pub struct Block {
     cnt: Vec<[u32; 2]>,
-    rbase: usize,
-    qbase: usize,
+    rrange: Range<usize>,
+    qrange: Range<usize>,
     width: usize,
     height: usize,
     base_per_pixel: usize,
@@ -23,8 +24,8 @@ impl Block {
         let height = q.range.len().div_ceil(base_per_pixel);
         Block {
             cnt: vec![[0, 0]; width * height],
-            rbase: r.range.start,
-            qbase: q.range.start,
+            rrange: r.range.clone(),
+            qrange: q.range.clone(),
             width,
             height,
             base_per_pixel,
@@ -32,14 +33,17 @@ impl Block {
     }
 
     pub fn append_seed(&mut self, rpos: usize, qpos: usize, is_rev: bool) {
-        if rpos < self.rbase || qpos < self.qbase {
+        if !self.rrange.contains(&rpos) || !self.qrange.contains(&qpos) {
             return;
         }
-        let rpos = (rpos - self.rbase) / self.base_per_pixel;
-        let qpos = (qpos - self.qbase) / self.base_per_pixel;
-        if rpos >= self.width || qpos >= self.height {
-            return;
-        }
+        let rpos = (rpos - self.rrange.start) / self.base_per_pixel;
+        let qpos = if is_rev {
+            (self.qrange.end - qpos) / self.base_per_pixel
+        } else {
+            (qpos - self.qrange.start) / self.base_per_pixel
+        };
+        debug_assert!(rpos < self.width && qpos < self.height);
+
         self.cnt[qpos * self.width + rpos][is_rev as usize] += 1;
     }
 
@@ -62,9 +66,9 @@ pub struct BlockBin {
 }
 
 impl BlockBin {
-    pub fn new(base_per_pixel: usize) -> BlockBin {
+    pub fn new(rseq: &[Seq], qseq: &[Seq], base_per_pixel: usize) -> BlockBin {
         log::debug!("BlockBin created");
-        BlockBin {
+        let mut bin = BlockBin {
             rseq: Vec::new(),
             qseq: Vec::new(),
             rmap: HashMap::new(),
@@ -75,7 +79,14 @@ impl BlockBin {
             cmap: HashMap::new(),
             base_per_pixel,
             tot_size: 0,
+        };
+        for r in rseq {
+            bin.add_reference(r);
         }
+        for q in qseq {
+            bin.add_query(q);
+        }
+        bin
     }
 
     pub fn has_plane(&self) -> bool {

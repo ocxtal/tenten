@@ -45,28 +45,25 @@ fn load_range_fasta(file: &str) -> Result<Vec<Seq>> {
     let file = std::io::BufReader::new(file);
 
     let mut v = Vec::new();
-    let (mut name, mut len, mut first) = (None, 0, true);
+    let (mut name, mut len) = (None, 0);
     for line in file.lines() {
         let line = line?;
         if line.starts_with('>') {
-            if let Some(mut name) = name {
-                v.push(Seq {
-                    name: std::mem::take(&mut name),
-                    range: 0..len,
-                });
+            if let Some(name) = std::mem::take(&mut name) {
+                v.push(Seq { name, range: 0..len });
             }
 
             let cols = line.split_ascii_whitespace().collect::<Vec<_>>();
             assert!(!cols.is_empty() && !cols[0].is_empty());
             (name, len) = (Some(cols[0][1..].to_string()), 0);
         } else {
-            if first {
-                return Err(anyhow!("failed to parse fasta: {:?}", line.trim()));
-            }
-            first = false;
             len += line.trim().len();
         }
     }
+    if let Some(name) = std::mem::take(&mut name) {
+        v.push(Seq { name, range: 0..len });
+    }
+
     Ok(v)
 }
 
