@@ -28,8 +28,8 @@ pub struct Args {
     #[clap(short = 'P', long, help = "seed generator template")]
     pub seed_generator: Option<String>,
 
-    #[clap(short = 'E', long, help = "use stderr of seed generator, instead of stdout")]
-    pub use_stderr: bool,
+    #[clap(short = 'O', long, help = "use stdout of seed generator, instead of stderr")]
+    pub use_stdout: bool,
 
     #[clap(short = 'f', long, help = "create directory if missing")]
     pub create_missing_dir: bool,
@@ -593,7 +593,7 @@ struct SeedGen {
 }
 
 impl SeedGen {
-    fn new(gen: &str, inputs: &[String], use_stderr: bool) -> SeedGen {
+    fn new(gen: &str, inputs: &[String], use_stdout: bool) -> SeedGen {
         let mut gen = gen.to_string();
         let mut consumed = vec![false; inputs.len()];
         for i in 0..inputs.len() {
@@ -622,16 +622,7 @@ impl SeedGen {
         log::info!("executing seed generator: {gen}");
 
         let cmd = gen.split(" ").collect::<Vec<_>>();
-        let (child, output) = if use_stderr {
-            let mut child = Command::new(cmd[0])
-                .args(&cmd[1..])
-                .stdout(Stdio::null())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap();
-            let output: Box<dyn Read> = Box::new(child.stderr.take().unwrap());
-            (child, output)
-        } else {
+        let (child, output) = if use_stdout {
             let mut child = Command::new(cmd[0])
                 .args(&cmd[1..])
                 .stdout(Stdio::piped())
@@ -639,6 +630,15 @@ impl SeedGen {
                 .spawn()
                 .unwrap();
             let output: Box<dyn Read> = Box::new(child.stdout.take().unwrap());
+            (child, output)
+        } else {
+            let mut child = Command::new(cmd[0])
+                .args(&cmd[1..])
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let output: Box<dyn Read> = Box::new(child.stderr.take().unwrap());
             (child, output)
         };
         SeedGen { child, output }
