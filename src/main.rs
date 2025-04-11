@@ -156,7 +156,7 @@ impl Context {
             .map_or_else(Vec::new, |x| load_range(x, &args.query_format).unwrap());
         log::debug!("reference ranges: {rseq:?}");
         log::debug!("query ranges: {qseq:?}");
-        let (rseq, qseq) = if args.swap_axes { (qseq, rseq) } else { (rseq, qseq) };
+        let (rseq, qseq) = if args.parse_swap { (qseq, rseq) } else { (rseq, qseq) };
 
         let basename = if let Some(basename) = args.output.strip_suffix(".png") {
             basename.to_string()
@@ -283,7 +283,7 @@ fn main() {
     let file = std::io::BufReader::new(file);
 
     let mut ctx = Context::new(&args);
-    let mut parser = SeedParser::new(file.lines(), args.swap_axes);
+    let mut parser = SeedParser::new(file.lines(), args.parse_swap);
     while let Some(token) = parser.next() {
         match token {
             SeedToken::NewReference(r) => ctx.add_reference(&r),

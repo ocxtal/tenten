@@ -10,6 +10,7 @@ where
 {
     it: T,
     swap: bool,
+    query_cache: Option<String>,
 }
 
 #[derive(Debug)]
@@ -24,7 +25,43 @@ where
     T: Iterator<Item = std::io::Result<String>>,
 {
     pub fn new(it: T, swap: bool) -> SeedParser<T> {
-        SeedParser { it, swap }
+        SeedParser {
+            it,
+            swap,
+            query_cache: None,
+        }
+    }
+
+    fn parse_query_mm2(&mut self, line: &str) -> Option<SeedToken> {
+        // QR      ptg000001l     0       4865381
+        let cols = line.trim().split('\t').collect::<Vec<_>>();
+        let name = cols[1].to_string();
+        let len = cols[3].parse::<usize>().unwrap();
+
+        self.query_cache = Some(name.clone());
+        if self.swap {
+            Some(SeedToken::NewReference(Seq { name, range: 0..len }))
+        } else {
+            Some(SeedToken::NewQuery(Seq { name, range: 0..len }))
+        }
+    }
+
+    fn parse_seed_mm2(&self, line: &str) -> Option<SeedToken> {
+        // SD      chr1_mat     159     +       31480   15      0
+        let cols = line.trim().split('\t').collect::<Vec<_>>();
+        let rname = cols[1].to_string();
+        let rpos = cols[2].parse::<usize>().unwrap();
+        let is_rev = cols[3] == "-";
+        let qname = self.query_cache.clone().unwrap();
+        let qpos = cols[4].parse::<usize>().unwrap();
+
+        let (rname, rpos, qname, qpos) = if self.swap {
+            (qname, qpos, rname, rpos)
+        } else {
+            (rname, rpos, qname, qpos)
+        };
+
+        Some(SeedToken::Seed(rname, rpos, is_rev, qname, qpos))
     }
 
     fn parse_seq(is_query: bool, line: &str) -> Option<SeedToken> {
@@ -67,9 +104,17 @@ where
             let line = line.ok()?;
             let line = line.trim();
             if line.starts_with("[") {
+                // minimap2 log
                 continue;
             } else if line.starts_with("@") {
+                // sam header
                 return None;
+            } else if line.starts_with("QR") {
+                return self.parse_query_mm2(line);
+            } else if line.starts_with("RS") {
+                // repeat length; ignore
+            } else if line.starts_with("SD") {
+                return self.parse_seed_mm2(line);
             } else if let Some(body) = line.strip_prefix("#ref\t") {
                 return Self::parse_seq(self.swap, body);
             } else if let Some(body) = line.strip_prefix("#query\t") {
