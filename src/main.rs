@@ -225,7 +225,7 @@ impl Context {
         if self.args.split_plot {
             let split = bin.split();
             for bin in &split {
-                self.plot(&bin);
+                self.plot(bin);
             }
         } else {
             self.plot(&bin);
@@ -237,7 +237,7 @@ impl Context {
             self.flush();
         }
         if self.rseq.is_empty() {
-            self.bin.add_reference(&r);
+            self.bin.add_reference(r);
         }
     }
 
@@ -246,7 +246,7 @@ impl Context {
             self.flush();
         }
         if self.qseq.is_empty() {
-            self.bin.add_query(&q);
+            self.bin.add_query(q);
         }
     }
 
