@@ -27,8 +27,30 @@ pub struct Args {
     #[clap(short = 'f', long, help = "create directory if missing")]
     pub create_missing_dir: bool,
 
-    #[clap(short = 'w', long, help = "bases per pixel", default_value = "100", value_parser = parse_usize)]
+    #[clap(short = 'r', long, help = "bases per pixel", default_value = "100", value_parser = parse_usize)]
     pub base_per_pixel: usize,
+
+    #[clap(short = 'w', long, help = "maximum width in pixel", default_value = "6400", value_parser = parse_usize)]
+    pub max_width: usize,
+
+    #[clap(short = 'h', long, help = "maximum height in pixel", default_value = "6400", value_parser = parse_usize)]
+    pub max_height: usize,
+
+    #[clap(
+        short = 'D',
+        long,
+        help = "density of seeds (#per 1kbp square) corresponds to 50% heatmap scale",
+        default_value = "100.0"
+    )]
+    pub density: f64,
+
+    #[clap(
+        short = 'M',
+        long,
+        help = "do not output image if seed density is less than this value",
+        default_value = "0"
+    )]
+    pub min_density: f64,
 
     #[clap(short = 'c', long, help = "count per seed", default_value = "1", value_parser = parse_usize)]
     pub count_per_seed: usize,
@@ -36,14 +58,22 @@ pub struct Args {
     #[clap(short = 's', long, help = "scaling factor", default_value = "25")]
     pub scale: f64,
 
-    #[clap(short = 'm', long, help = "minimum seed count in a plane to plot", default_value = "1000")]
+    #[clap(
+        short = 'm',
+        long,
+        help = "do not output image if #seed is less than this value",
+        default_value = "0"
+    )]
     pub min_count: usize,
 
     #[clap(short = 'p', long, help = "split plot", default_value = "false")]
     pub split_plot: bool,
 
-    #[clap(short = 'x', long, help = "swap x/y axes", default_value = "false")]
-    pub swap_axes: bool,
+    #[clap(short = 'x', long, help = "swap x/y axes when parsing the seed stream", default_value = "false")]
+    pub parse_swap: bool,
+
+    #[clap(short = 'X', long, help = "swap x/y axes when plotting", default_value = "false")]
+    pub plot_swap: bool,
 
     #[clap(short = 'r', long, help = "reference range file in fasta, bed, or \"chr7:6000000-6300000\"")]
     pub reference: Option<String>,
