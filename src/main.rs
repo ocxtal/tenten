@@ -1,11 +1,11 @@
-mod block;
 mod eval;
 mod parser;
+mod plotter;
 mod seq;
 
-use crate::block::BlockBin;
 use crate::eval::parse_usize;
 use crate::parser::{SeedParser, SeedToken};
+use crate::plotter::BlockBin;
 use crate::seq::{load_range, RangeFormat, Seq};
 use clap::{CommandFactory, Parser};
 use std::collections::HashMap;
