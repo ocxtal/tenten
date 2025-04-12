@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @brief dotplot plane data structure
 
-use crate::Seq;
+use crate::seq::Seq;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 

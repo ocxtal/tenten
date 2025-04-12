@@ -2,8 +2,10 @@
 // @author Hajime Suzuki
 // @brief dotplot plotter
 
-use crate::BlockTile;
+use crate::block::{Block, BlockTile};
+use crate::seq::Seq;
 use anyhow::{Result, anyhow};
+use plotters::coord::Shift;
 use plotters::prelude::*;
 
 struct Breakpoints {
@@ -55,6 +57,7 @@ impl Breakpoints {
 
 pub struct Plotter {
     margin: usize,
+    spacer: usize,
     x_label_area_size: usize,
     y_label_area_size: usize,
     count_per_seed: f64,
@@ -65,6 +68,7 @@ impl Plotter {
     pub fn new(count_per_seed: f64, scale: f64) -> Plotter {
         Plotter {
             margin: 20,
+            spacer: 1,
             x_label_area_size: 10,
             y_label_area_size: 40,
             count_per_seed,
@@ -85,24 +89,67 @@ impl Plotter {
     //     boundaries
     // }
 
-    pub fn plot(&self, name: &str, tile: &BlockTile) -> Result<()> {
-        let block_pixels = (tile.rpixels(), tile.qpixels());
+    fn draw_origin(area: &DrawingArea<BitMapBackend<'_>, Shift>) {
+        area.draw_pixel((0, 0), &BLACK).unwrap();
+    }
 
-        let dotplanes = (Breakpoints::from_pixels(&block_pixels.0), Breakpoints::from_pixels(&block_pixels.1));
-        let with_labels = (
-            dotplanes.0.to_smashed().to_margined(self.x_label_area_size as u32, 0),
-            dotplanes.1.to_smashed().to_margined(self.y_label_area_size as u32, 0),
+    fn draw_xlabel(area: &DrawingArea<BitMapBackend<'_>, Shift>, seq: &Seq) {
+        // let style = ("sans-serif", 20, &BLACK).into_text_style(area);
+        // area.draw_text(label, &style, (0, 0)).unwrap();
+    }
+
+    fn draw_ylabel(area: &DrawingArea<BitMapBackend<'_>, Shift>, seq: &Seq) {
+        // let style = ("sans-serif", 20, &BLACK).into_text_style(area);
+        // area.draw_text(label, &style, (0, 0)).unwrap();
+    }
+
+    fn draw_block(area: &DrawingArea<BitMapBackend<'_>, Shift>, block: &Block) {
+        // let color = RGBColor(block[0] as u8, block[1] as u8, 0);
+        // area.fill(&color).unwrap();
+    }
+
+    pub fn plot(&self, name: &str, tile: &BlockTile) -> Result<()> {
+        let block_pixels = (
+            tile.rpixels().iter().map(|&x| x + self.spacer as u32).collect::<Vec<_>>(),
+            tile.qpixels().iter().map(|&x| x + self.spacer as u32).collect::<Vec<_>>(),
         );
-        let with_margin = (
-            with_labels.0.to_margined(self.margin as u32, self.margin as u32),
-            with_labels.1.to_margined(self.margin as u32, self.margin as u32),
+
+        let block_brks = (Breakpoints::from_pixels(&block_pixels.0), Breakpoints::from_pixels(&block_pixels.1));
+        let label_brks = (
+            block_brks.0.to_smashed().to_margined(self.x_label_area_size as u32, 0),
+            block_brks.1.to_smashed().to_margined(self.y_label_area_size as u32, 0),
         );
-        let pixels = (with_margin.0.pixels(), with_margin.0.pixels());
+        let margin_brks = (
+            label_brks.0.to_smashed().to_margined(self.margin as u32, self.margin as u32),
+            label_brks.1.to_smashed().to_margined(self.margin as u32, self.margin as u32),
+        );
+        let pixels = (margin_brks.0.pixels(), margin_brks.0.pixels());
         if pixels.0 >= 65536 || pixels.1 >= 65536 {
             return Err(anyhow!("plotting area too large: {} x {}", pixels.0, pixels.1));
         }
         let root = BitMapBackend::new(&name, (pixels.0, pixels.1)).into_drawing_area();
         root.fill(&WHITE).unwrap();
+
+        let margin_areas = root.split_by_breakpoints(margin_brks.0.as_slice(), margin_brks.1.as_slice());
+        let label_areas = margin_areas[1].split_by_breakpoints(label_brks.0.as_slice(), label_brks.1.as_slice());
+        Self::draw_origin(&label_areas[2]);
+
+        let xlabel_areas = label_areas[3].split_by_breakpoints(block_brks.0.as_slice(), &[0u32][1..]);
+        for (a, s) in xlabel_areas.iter().zip(tile.rseq.iter()) {
+            Self::draw_xlabel(a, s);
+        }
+
+        let ylabel_areas = label_areas[0].split_by_breakpoints(&[0u32][1..], block_brks.1.as_slice());
+        for (a, s) in ylabel_areas.iter().zip(tile.qseq.iter()) {
+            Self::draw_ylabel(a, s);
+        }
+
+        let block_areas = label_areas[1].split_by_breakpoints(block_brks.0.as_slice(), block_brks.1.as_slice());
+        for (ac, bc) in block_areas.chunks(tile.rseq.len()).rev().zip(tile.blocks.chunks(tile.rseq.len())) {
+            for (a, b) in ac.iter().zip(bc.iter()) {
+                Self::draw_block(a, b);
+            }
+        }
 
         // let rlen = tile.rseq.iter().map(|x| x.range.len()).collect::<Vec<_>>();
         // let rbnd = self.calc_boundaries(&rlen);
