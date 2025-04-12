@@ -8,18 +8,68 @@ use plotters::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
+struct Breakpoints {
+    v: Vec<u32>, // first element is always zero; ignored when splitting plot plane
+}
+
+impl Breakpoints {
+    fn from_pixels(pixels: &[u32]) -> Breakpoints {
+        let mut acc = 0;
+        let mut v = vec![0];
+        for p in pixels {
+            v.push(acc);
+            acc += p;
+        }
+        Breakpoints { v }
+    }
+
+    fn as_slice(&self) -> &[u32] {
+        &self.v[1..]
+    }
+
+    fn extend_slice(&mut self, v: &[u32]) {
+        let offset = *self.v.last().unwrap();
+        for b in v.iter().skip(1) {
+            self.v.push(offset + b);
+        }
+    }
+
+    fn extend(&mut self, other: &Breakpoints) {
+        self.extend_slice(&other.v);
+    }
+
+    fn to_margined(&self, left: u32, right: u32) -> Breakpoints {
+        let mut b = Breakpoints { v: vec![0, left] };
+        b.extend_slice(&self.v);
+        b.extend_slice(&[0, right]);
+        b
+    }
+
+    fn to_smashed(&self) -> Breakpoints {
+        let last = self.v.last().unwrap();
+        Breakpoints { v: vec![0, *last] }
+    }
+}
+
+pub struct BlockTile {
+    pub rseq: Vec<Seq>,
+    pub qseq: Vec<Seq>,
+    pub blocks: Vec<Block>,
+}
+
 #[derive(Default)]
 pub struct Block {
-    cnt: Vec<[u32; 2]>,
-    rrange: Range<usize>,
-    qrange: Range<usize>,
-    width: usize,
-    height: usize,
-    base_per_pixel: usize,
+    pub cnt: Vec<[u32; 2]>,
+    pub rrange: Range<usize>,
+    pub qrange: Range<usize>,
+    pub width: usize,
+    pub height: usize,
+    pub base_per_pixel: usize,
+    pair_id: usize,
 }
 
 impl Block {
-    pub fn new(r: &Seq, q: &Seq, base_per_pixel: usize) -> Block {
+    pub fn new(r: &Seq, q: &Seq, base_per_pixel: usize, pair_id: usize) -> Block {
         let width = r.range.len().div_ceil(base_per_pixel);
         let height = q.range.len().div_ceil(base_per_pixel);
         Block {
@@ -29,6 +79,7 @@ impl Block {
             width,
             height,
             base_per_pixel,
+            pair_id,
         }
     }
 
@@ -59,7 +110,7 @@ pub struct BlockBin {
     qdedup: HashSet<String>,
     rmap: HashMap<String, Vec<usize>>,
     qmap: HashMap<String, Vec<usize>>,
-    cnts: Vec<Block>,
+    blocks: Vec<Block>,
     cmap: HashMap<usize, usize>,
     base_per_pixel: usize,
     tot_size: usize,
@@ -75,7 +126,7 @@ impl BlockBin {
             qmap: HashMap::new(),
             rdedup: HashSet::new(),
             qdedup: HashSet::new(),
-            cnts: Vec::new(),
+            blocks: Vec::new(),
             cmap: HashMap::new(),
             base_per_pixel,
             tot_size: 0,
@@ -107,12 +158,12 @@ impl BlockBin {
         self.rseq.push(r.clone());
 
         for (qid, q) in self.qseq.iter().enumerate() {
-            let pair = (qid << 32) | rid;
-            self.cmap.insert(pair, self.cnts.len());
+            let pair_id = (qid << 32) | rid;
+            self.cmap.insert(pair_id, self.blocks.len());
 
-            let block = Block::new(r, q, self.base_per_pixel);
+            let block = Block::new(r, q, self.base_per_pixel, pair_id);
             self.tot_size += block.cnt.len();
-            self.cnts.push(block);
+            self.blocks.push(block);
         }
         log::debug!("reference added: {:?}, {:}", &r.name, self.tot_size);
     }
@@ -131,12 +182,12 @@ impl BlockBin {
         self.qseq.push(q.clone());
 
         for (rid, r) in self.rseq.iter().enumerate() {
-            let pair = (qid << 32) | rid;
-            self.cmap.insert(pair, self.cnts.len());
+            let pair_id = (qid << 32) | rid;
+            self.cmap.insert(pair_id, self.blocks.len());
 
-            let block = Block::new(r, q, self.base_per_pixel);
+            let block = Block::new(r, q, self.base_per_pixel, pair_id);
             self.tot_size += block.cnt.len();
-            self.cnts.push(block);
+            self.blocks.push(block);
         }
         log::debug!("query added: {:?}, {:}", &q.name, self.tot_size);
     }
@@ -153,9 +204,9 @@ impl BlockBin {
                     if !qseq.range.contains(&qpos) {
                         continue;
                     }
-                    let pair = (qid << 32) | rid;
-                    if let Some(&cid) = self.cmap.get(&pair) {
-                        self.cnts[cid].append_seed(rpos, qpos, is_rev);
+                    let pair_id = (qid << 32) | rid;
+                    if let Some(&cid) = self.cmap.get(&pair_id) {
+                        self.blocks[cid].append_seed(rpos, qpos, is_rev);
                     }
                 }
             }
@@ -163,16 +214,17 @@ impl BlockBin {
     }
 
     pub fn count(&self) -> usize {
-        self.cnts.iter().map(|x| x.count()).sum::<usize>()
+        self.blocks.iter().map(|x| x.count()).sum::<usize>()
     }
 
     pub fn split(mut self) -> Vec<BlockBin> {
         let mut v = Vec::new();
         for (rid, rseq) in self.rseq.iter().enumerate() {
             for (qid, qseq) in self.qseq.iter().enumerate() {
-                let pair = (qid << 32) | rid;
-                let cid = *self.cmap.get(&pair).unwrap();
-                let block = std::mem::take(&mut self.cnts[cid]);
+                let pair_id = (qid << 32) | rid;
+                let cid = *self.cmap.get(&pair_id).unwrap();
+                let mut block = std::mem::take(&mut self.blocks[cid]);
+                block.pair_id = 0;
 
                 v.push(BlockBin {
                     rseq: vec![rseq.clone()],
@@ -181,7 +233,7 @@ impl BlockBin {
                     qdedup: HashSet::from([qseq.to_string()]),
                     rmap: [(rseq.name.clone(), vec![0])].into_iter().collect::<HashMap<_, _>>(),
                     qmap: [(qseq.name.clone(), vec![0])].into_iter().collect::<HashMap<_, _>>(),
-                    cnts: vec![block],
+                    blocks: vec![block],
                     cmap: [(0, 0)].into_iter().collect::<HashMap<_, _>>(),
                     base_per_pixel: self.base_per_pixel,
                     tot_size: 0,
@@ -202,6 +254,17 @@ impl BlockBin {
             boundaries.push(boundary);
         }
         boundaries
+    }
+
+    pub fn to_tile(self) -> BlockTile {
+        let mut blocks = self.blocks;
+        blocks.sort_by(|a, b| a.pair_id.cmp(&b.pair_id));
+
+        BlockTile {
+            rseq: self.rseq,
+            qseq: self.qseq,
+            blocks,
+        }
     }
 
     pub fn plot(&self, name: &str, count_per_seed: f64, scale: f64) -> Result<()> {
@@ -267,9 +330,9 @@ impl BlockBin {
 
         for rid in 0..rbnd.len() - 1 {
             for qid in 0..qbnd.len() - 1 {
-                let pair = (qid << 32) | rid;
-                if let Some(&cid) = self.cmap.get(&pair) {
-                    let block = &self.cnts[cid];
+                let pair_id = (qid << 32) | rid;
+                if let Some(&cid) = self.cmap.get(&pair_id) {
+                    let block = &self.blocks[cid];
                     for (i, c) in block.cnt.iter().enumerate() {
                         let x = i % block.width + rbnd[rid];
                         let y = i / block.width + qbnd[qid];
@@ -303,8 +366,8 @@ impl BlockBin {
             }
         }
 
-        let style = ("sans-serif", 20, &BLACK).into_text_style(&root);
-        root.draw_text("aaaa", &style, (100, 100)).unwrap();
+        // let style = ("sans-serif", 20, &BLACK).into_text_style(&root);
+        // root.draw_text("aaaa", &style, (100, 100)).unwrap();
 
         root.present().unwrap();
         log::info!("plotted: {:?} with query {:?} and reference {:?}", name, self.qseq, self.rseq);
