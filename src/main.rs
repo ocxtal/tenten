@@ -108,7 +108,7 @@ pub struct Args {
     #[clap(short = 'o', long, help = "Output filename (prefix if split plot)", default_value = "out.png")]
     pub output: String,
 
-    #[clap(short = 'f', long, help = "Create directory if missing")]
+    #[clap(short = 'f', long, help = "Create directory if it doesn't exist")]
     pub create_missing_dir: bool,
 
     #[clap(short = 'p', long, help = "Create plot for each reference/query pair", default_value = "false")]
