@@ -11,6 +11,7 @@ use clap::Parser;
 use std::io::{BufRead, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use tempfile::NamedTempFile;
 
 #[derive(Clone, Debug, Parser)]
 #[command(version)]
@@ -37,12 +38,6 @@ pub struct Args {
 
     #[clap(short = 'r', long, help = "Bases per pixel", default_value = "100", value_parser = parse_usize)]
     pub base_per_pixel: usize,
-
-    #[clap(short = 'W', long, help = "Maximum width in pixel", default_value = "6400", value_parser = parse_usize)]
-    pub max_width: usize,
-
-    #[clap(short = 'H', long, help = "Maximum height in pixel", default_value = "6400", value_parser = parse_usize)]
-    pub max_height: usize,
 
     #[clap(
         short = 'D',
@@ -126,6 +121,12 @@ pub struct Args {
         default_value = "false"
     )]
     pub output_iterm2: bool,
+
+    #[clap(short = 'W', long, help = "Width in characters when printing plot to terminal", default_value = "120", value_parser = parse_usize)]
+    pub iterm2_width: usize,
+
+    #[clap(short = 'H', long, help = "Height in characters when printing plot to terminal", default_value = "80", value_parser = parse_usize)]
+    pub iterm2_height: usize,
 }
 
 struct SeedGeneratorCommand {
@@ -255,7 +256,22 @@ impl Context {
         bin.plot(&name, self.args.count_per_seed as f64, self.args.scale).unwrap();
     }
 
-    fn plot_tty(&self, bin: &BlockBin) {}
+    fn plot_tty(&self, bin: &BlockBin) {
+        let mut file = NamedTempFile::with_suffix(".png").unwrap();
+        bin.plot(file.path().to_str().unwrap(), self.args.count_per_seed as f64, self.args.scale)
+            .unwrap();
+
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).unwrap();
+
+        let encoded = iterm2img::from_bytes(buf)
+            .inline(true)
+            .preserve_aspect_ratio(true)
+            .width(self.args.iterm2_width as u64)
+            .height(self.args.iterm2_height as u64)
+            .build();
+        println!("{encoded}");
+    }
 
     fn plot(&self, bin: &BlockBin) {
         let count = bin.count();
@@ -336,12 +352,13 @@ fn main() {
 
     // check output directory exists
     let dir = Path::new(&args.output).parent().unwrap();
-    if !dir.exists() {
+    if dir != Path::new("") && !dir.exists() {
         if args.create_missing_dir {
             log::info!("output directory {dir:?} does not exist. creating it.");
             std::fs::create_dir_all(dir).unwrap();
         } else {
             log::error!("output directory {dir:?} does not exist. abort.");
+            return;
         }
     }
 
@@ -365,6 +382,6 @@ fn main() {
     while let Some(token) = parser.next() {
         ctx.process_token(token);
     }
-    log::debug!("seed generator reached end. cleaning...");
+    log::info!("seed stream reached the end. cleaning...");
     ctx.flush();
 }
