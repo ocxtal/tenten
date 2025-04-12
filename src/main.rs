@@ -122,11 +122,11 @@ pub struct Args {
     )]
     pub output_iterm2: bool,
 
-    #[clap(short = 'W', long, help = "Width in characters when printing plot to terminal", default_value = "120", value_parser = parse_usize)]
-    pub iterm2_width: usize,
+    #[clap(short = 'W', long, help = "Width in characters when printing plot to terminal", value_parser = parse_usize)]
+    pub iterm2_width: Option<usize>,
 
-    #[clap(short = 'H', long, help = "Height in characters when printing plot to terminal", default_value = "80", value_parser = parse_usize)]
-    pub iterm2_height: usize,
+    #[clap(short = 'H', long, help = "Height in characters when printing plot to terminal", value_parser = parse_usize)]
+    pub iterm2_height: Option<usize>,
 }
 
 struct SeedGeneratorCommand {
@@ -256,7 +256,7 @@ impl Context {
         bin.plot(&name, self.args.count_per_seed as f64, self.args.scale).unwrap();
     }
 
-    fn plot_tty(&self, bin: &BlockBin) {
+    fn plot_iterm2(&self, bin: &BlockBin) {
         let mut file = NamedTempFile::with_suffix(".png").unwrap();
         bin.plot(file.path().to_str().unwrap(), self.args.count_per_seed as f64, self.args.scale)
             .unwrap();
@@ -264,12 +264,14 @@ impl Context {
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
 
-        let encoded = iterm2img::from_bytes(buf)
-            .inline(true)
-            .preserve_aspect_ratio(true)
-            .width(self.args.iterm2_width as u64)
-            .height(self.args.iterm2_height as u64)
-            .build();
+        let mut img = iterm2img::from_bytes(buf).inline(true).preserve_aspect_ratio(true);
+        if let Some(width) = self.args.iterm2_width {
+            img = img.width(width as u64);
+        }
+        if let Some(height) = self.args.iterm2_height {
+            img = img.height(height as u64);
+        }
+        let encoded = img.build();
         println!("{encoded}");
     }
 
@@ -286,7 +288,7 @@ impl Context {
             return;
         }
         if self.args.output_iterm2 {
-            self.plot_tty(bin);
+            self.plot_iterm2(bin);
         } else {
             self.plot_file(bin);
         }
