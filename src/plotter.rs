@@ -86,21 +86,22 @@ impl Plotter {
     // }
 
     pub fn plot(&self, name: &str, tile: &BlockTile) -> Result<()> {
-        let rpixels = tile.rpixels();
-        let qpixels = tile.qpixels();
+        let block_pixels = (tile.rpixels(), tile.qpixels());
 
-        let rbrk = Breakpoints::from_pixels(&rpixels)
-            .to_margined(self.y_label_area_size as u32, 0)
-            .to_margined(self.margin as u32, self.margin as u32);
-        let qbrk = Breakpoints::from_pixels(&rpixels)
-            .to_margined(self.x_label_area_size as u32, 0)
-            .to_margined(self.margin as u32, self.margin as u32);
-
-        let (plot_width, plot_height) = (rbrk.pixels(), qbrk.pixels());
-        if plot_width >= 65536 || plot_height >= 65536 {
-            return Err(anyhow!("plotting area too large: {} x {}", plot_width, plot_height));
+        let dotplanes = (Breakpoints::from_pixels(&block_pixels.0), Breakpoints::from_pixels(&block_pixels.1));
+        let with_labels = (
+            dotplanes.0.to_smashed().to_margined(self.x_label_area_size as u32, 0),
+            dotplanes.1.to_smashed().to_margined(self.y_label_area_size as u32, 0),
+        );
+        let with_margin = (
+            with_labels.0.to_margined(self.margin as u32, self.margin as u32),
+            with_labels.1.to_margined(self.margin as u32, self.margin as u32),
+        );
+        let pixels = (with_margin.0.pixels(), with_margin.0.pixels());
+        if pixels.0 >= 65536 || pixels.1 >= 65536 {
+            return Err(anyhow!("plotting area too large: {} x {}", pixels.0, pixels.1));
         }
-        let root = BitMapBackend::new(&name, (plot_width, plot_height)).into_drawing_area();
+        let root = BitMapBackend::new(&name, (pixels.0, pixels.1)).into_drawing_area();
         root.fill(&WHITE).unwrap();
 
         // let rlen = tile.rseq.iter().map(|x| x.range.len()).collect::<Vec<_>>();

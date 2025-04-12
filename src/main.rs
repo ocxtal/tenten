@@ -260,12 +260,12 @@ impl Context {
         } else {
             format!("{}.png", &self.basename)
         };
-        self.plotter.plot(&name, tile);
+        self.plotter.plot(&name, tile).unwrap();
     }
 
     fn plot_iterm2(&self, tile: &BlockTile) {
         let mut file = NamedTempFile::with_suffix(".png").unwrap();
-        self.plotter.plot(&file.path().to_str().unwrap(), tile);
+        self.plotter.plot(&file.path().to_str().unwrap(), tile).unwrap();
 
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
