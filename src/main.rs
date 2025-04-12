@@ -127,6 +127,9 @@ pub struct Args {
 
     #[clap(short = 'H', long, help = "Height in characters when printing plot to terminal", value_parser = parse_usize)]
     pub iterm2_height: Option<usize>,
+
+    #[clap(long, help = "Suppress logs")]
+    pub quiet: bool,
 }
 
 struct SeedGeneratorCommand {
@@ -347,9 +350,10 @@ fn print_args(args: &[String]) {
 }
 
 fn main() {
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
-
     let args = Args::parse();
+
+    let default_log_level = if args.quiet { "off" } else { "info" };
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or(default_log_level));
     print_args(&std::env::args().collect::<Vec<_>>());
 
     // check output directory exists
