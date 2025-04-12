@@ -120,7 +120,7 @@ pub struct Args {
         help = "Print plot to terminal (encoded to iTerm2 image format)",
         default_value = "false"
     )]
-    pub output_iterm2: bool,
+    pub iterm2: bool,
 
     #[clap(short = 'W', long, help = "Width in characters when printing plot to terminal", value_parser = parse_usize)]
     pub iterm2_width: Option<usize>,
@@ -290,7 +290,7 @@ impl Context {
             );
             return;
         }
-        if self.args.output_iterm2 {
+        if self.args.iterm2 {
             self.plot_iterm2(bin);
         } else {
             self.plot_file(bin);
