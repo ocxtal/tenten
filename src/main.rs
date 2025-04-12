@@ -1,11 +1,13 @@
 mod block;
 mod eval;
 mod parser;
+mod plotter;
 mod seq;
 
-use crate::block::BlockBin;
+use crate::block::{BlockBin, BlockTile};
 use crate::eval::parse_usize;
 use crate::parser::{SeedParser, SeedToken};
+use crate::plotter::Plotter;
 use crate::seq::{RangeFormat, Seq, filter_range, load_range};
 use clap::Parser;
 use std::io::{BufRead, Read};
@@ -202,6 +204,7 @@ struct Context {
     rseq: Vec<Seq>,
     qseq: Vec<Seq>,
     bin: BlockBin,
+    plotter: Plotter,
     args: Args,
 }
 
@@ -240,29 +243,29 @@ impl Context {
             rseq,
             qseq,
             bin,
+            plotter: Plotter::new(args.count_per_seed as f64, args.scale),
             args: args.clone(),
         }
     }
 
-    fn plot_file(&self, bin: &BlockBin) {
+    fn plot_file(&self, tile: &BlockTile) {
         // format name
         let name = if self.args.split_plot {
             format!(
                 "{}.{}.{}.png",
                 &self.basename,
-                bin.rseq[0].to_path_string(),
-                bin.qseq[0].to_path_string()
+                tile.rseq[0].to_path_string(),
+                tile.qseq[0].to_path_string()
             )
         } else {
             format!("{}.png", &self.basename)
         };
-        bin.plot(&name, self.args.count_per_seed as f64, self.args.scale).unwrap();
+        self.plotter.plot(&name, tile);
     }
 
-    fn plot_iterm2(&self, bin: &BlockBin) {
+    fn plot_iterm2(&self, tile: &BlockTile) {
         let mut file = NamedTempFile::with_suffix(".png").unwrap();
-        bin.plot(file.path().to_str().unwrap(), self.args.count_per_seed as f64, self.args.scale)
-            .unwrap();
+        self.plotter.plot(&file.path().to_str().unwrap(), tile);
 
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
@@ -278,34 +281,35 @@ impl Context {
         println!("{encoded}");
     }
 
-    fn plot(&self, bin: &BlockBin) {
-        let count = bin.count();
+    fn plot(&self, tile: &BlockTile) {
+        let count = tile.count();
         if count < self.args.min_count {
             log::info!(
                 "skip {:?} x {:?} as seed count {} < {}",
-                &bin.rseq,
-                &bin.qseq,
+                &tile.rseq,
+                &tile.qseq,
                 count,
                 self.args.min_count
             );
             return;
         }
         if self.args.iterm2 {
-            self.plot_iterm2(bin);
+            self.plot_iterm2(tile);
         } else {
-            self.plot_file(bin);
+            self.plot_file(tile);
         }
     }
 
     fn flush(&mut self) {
         let bin = std::mem::replace(&mut self.bin, BlockBin::new(&self.rseq, &self.qseq, self.args.base_per_pixel));
         if self.args.split_plot {
-            let split = bin.split();
-            for bin in &split {
-                self.plot(bin);
+            for bin in bin.split() {
+                let tile = bin.to_tile();
+                self.plot(&tile);
             }
         } else {
-            self.plot(&bin);
+            let tile = bin.to_tile();
+            self.plot(&tile);
         }
     }
 
