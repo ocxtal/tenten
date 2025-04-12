@@ -40,7 +40,7 @@ impl Block {
         let qpos = if is_rev {
             (self.qrange.end - qpos) / self.base_per_pixel
         } else {
-            (qpos - self.qrange.start) / self.base_per_pixel
+            (qpos - self.qrange.start - 1) / self.base_per_pixel
         };
         debug_assert!(rpos < self.width && qpos < self.height);
 
@@ -250,8 +250,6 @@ impl BlockBin {
             .draw()?;
 
         let plotting_area = chart.plotting_area();
-        // let range = plotting_area.get_pixel_range();
-
         let blend = |min: (u8, u8, u8), max: (u8, u8, u8), val: u32| -> (u8, u8, u8) {
             let r = (min.0 as u32 * (256 - val) + max.0 as u32 * val) / 256;
             let g = (min.1 as u32 * (256 - val) + max.1 as u32 * val) / 256;
@@ -289,7 +287,7 @@ impl BlockBin {
 
         // draw boundaries
         for &x in &rbnd {
-            for y in 0..plot_height {
+            for y in 0..=plot_height {
                 plotting_area.draw_pixel(
                     ((x * self.base_per_pixel) as f64, (y * self.base_per_pixel) as f64),
                     &RGBColor(192, 208, 192),
@@ -297,7 +295,7 @@ impl BlockBin {
             }
         }
         for &y in &qbnd {
-            for x in 0..plot_width {
+            for x in 0..=plot_width {
                 plotting_area.draw_pixel(
                     ((x * self.base_per_pixel) as f64, (y * self.base_per_pixel) as f64),
                     &RGBColor(192, 208, 192),

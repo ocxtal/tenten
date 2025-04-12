@@ -240,8 +240,9 @@ impl Context {
         }
     }
 
-    fn create_name(&self, bin: &BlockBin) -> String {
-        if self.args.split_plot {
+    fn plot_file(&self, bin: &BlockBin) {
+        // format name
+        let name = if self.args.split_plot {
             format!(
                 "{}.{}.{}.png",
                 &self.basename,
@@ -250,30 +251,29 @@ impl Context {
             )
         } else {
             format!("{}.png", &self.basename)
-        }
+        };
+        bin.plot(&name, self.args.count_per_seed as f64, self.args.scale).unwrap();
     }
 
-    fn ensure_dir(&self, name: &str) {
-        if !self.args.create_missing_dir {
-            return;
-        }
-        let name = Path::new(name);
-        let dir = name.parent().unwrap();
-        if !dir.exists() {
-            std::fs::create_dir_all(dir).unwrap();
-        }
-    }
+    fn plot_tty(&self, bin: &BlockBin) {}
 
     fn plot(&self, bin: &BlockBin) {
-        let name = self.create_name(bin);
-
         let count = bin.count();
         if count < self.args.min_count {
-            log::info!("skip {} as count {} < {}", &name, count, self.args.min_count);
+            log::info!(
+                "skip {:?} x {:?} as seed count {} < {}",
+                &bin.rseq,
+                &bin.qseq,
+                count,
+                self.args.min_count
+            );
             return;
         }
-        self.ensure_dir(&name);
-        bin.plot(&name, self.args.count_per_seed as f64, self.args.scale).unwrap();
+        if self.args.output_iterm2 {
+            self.plot_tty(bin);
+        } else {
+            self.plot_file(bin);
+        }
     }
 
     fn flush(&mut self) {
@@ -309,6 +309,14 @@ impl Context {
     fn append_seed(&mut self, rname: &str, rpos: usize, is_rev: bool, qname: &str, qpos: usize) {
         self.bin.append_seed(rname, rpos, is_rev, qname, qpos);
     }
+
+    fn process_token(&mut self, token: SeedToken) {
+        match token {
+            SeedToken::NewReference(r) => self.add_reference(&r),
+            SeedToken::NewQuery(q) => self.add_query(&q),
+            SeedToken::Seed(rname, rpos, is_rev, qname, qpos) => self.append_seed(&rname, rpos, is_rev, &qname, qpos),
+        }
+    }
 }
 
 fn print_args(args: &[String]) {
@@ -326,7 +334,19 @@ fn main() {
     let args = Args::parse();
     print_args(&std::env::args().collect::<Vec<_>>());
 
-    let file: Box<dyn Read> = if let Some(query) = &args.query {
+    // check output directory exists
+    let dir = Path::new(&args.output).parent().unwrap();
+    if !dir.exists() {
+        if args.create_missing_dir {
+            log::info!("output directory {dir:?} does not exist. creating it.");
+            std::fs::create_dir_all(dir).unwrap();
+        } else {
+            log::error!("output directory {dir:?} does not exist. abort.");
+        }
+    }
+
+    // open input stream
+    let stream: Box<dyn Read> = if let Some(query) = &args.query {
         let seed_generator = args.seed_generator.as_ref().unwrap();
         let inputs: [&str; 2] = if args.swap_generator {
             [query, &args.reference]
@@ -337,16 +357,13 @@ fn main() {
     } else {
         Box::new(std::fs::File::open(&args.reference).unwrap())
     };
-    let file = std::io::BufReader::new(file);
+    let stream = std::io::BufReader::new(stream);
 
+    // parse the stream
     let mut ctx = Context::new(&args);
-    let mut parser = SeedParser::new(file.lines(), args.swap_generator);
+    let mut parser = SeedParser::new(stream.lines(), args.swap_generator);
     while let Some(token) = parser.next() {
-        match token {
-            SeedToken::NewReference(r) => ctx.add_reference(&r),
-            SeedToken::NewQuery(q) => ctx.add_query(&q),
-            SeedToken::Seed(rname, rpos, is_rev, qname, qpos) => ctx.append_seed(&rname, rpos, is_rev, &qname, qpos),
-        }
+        ctx.process_token(token);
     }
     log::debug!("seed generator reached end. cleaning...");
     ctx.flush();
