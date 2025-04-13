@@ -254,8 +254,8 @@ impl Context {
             format!(
                 "{}.{}.{}.png",
                 &self.basename,
-                tile.rseq[0].to_path_string(),
-                tile.qseq[0].to_path_string()
+                tile.horizontal_seqs()[0].to_path_string(),
+                tile.vertical_seqs()[0].to_path_string()
             )
         } else {
             format!("{}.png", &self.basename)
@@ -286,8 +286,8 @@ impl Context {
         if count < self.args.min_count {
             log::info!(
                 "skip {:?} x {:?} as seed count {} < {}",
-                &tile.rseq,
-                &tile.qseq,
+                tile.horizontal_seqs(),
+                tile.vertical_seqs(),
                 count,
                 self.args.min_count
             );

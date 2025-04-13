@@ -971,6 +971,7 @@ dependencies = [
  "iterm2img",
  "log",
  "plotters",
+ "plotters-backend",
  "rand",
  "tempfile",
 ]

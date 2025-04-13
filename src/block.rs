@@ -6,27 +6,44 @@ use crate::seq::Seq;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
+#[derive(Debug)]
 pub struct BlockTile {
-    pub rseq: Vec<Seq>,
-    pub qseq: Vec<Seq>,
-    pub blocks: Vec<Block>,
+    hpx: Vec<u32>,
+    vpx: Vec<u32>,
+    rseq: Vec<Seq>,
+    qseq: Vec<Seq>,
+    blocks: Vec<Block>,
 }
 
 impl BlockTile {
-    pub fn rpixels(&self) -> Vec<u32> {
-        let mut v = Vec::new();
-        for i in 0..self.rseq.len() {
-            v.push(self.blocks[i].width as u32);
-        }
-        v
+    pub fn horizontal_pixels(&self) -> &[u32] {
+        &self.hpx
     }
 
-    pub fn qpixels(&self) -> Vec<u32> {
-        let mut v = Vec::new();
-        for j in 0..self.qseq.len() {
-            v.push(self.blocks[j * self.rseq.len()].height as u32);
-        }
-        v
+    pub fn vertical_pixels(&self) -> &[u32] {
+        &self.vpx
+    }
+
+    pub fn horizontal_seqs(&self) -> &[Seq] {
+        &self.rseq
+    }
+
+    pub fn vertical_seqs(&self) -> &[Seq] {
+        &self.qseq
+    }
+
+    pub fn horizontal_blocks(&self) -> usize {
+        self.rseq.len()
+    }
+
+    pub fn vertical_blocks(&self) -> usize {
+        self.qseq.len()
+    }
+
+    pub fn get_row(&self, row: usize) -> &[Block] {
+        let start = row * self.rseq.len();
+        let end = start + self.rseq.len();
+        &self.blocks[start..end]
     }
 
     pub fn count(&self) -> usize {
@@ -34,7 +51,7 @@ impl BlockTile {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Block {
     pub cnt: Vec<[u32; 2]>,
     pub rrange: Range<usize>,
@@ -80,6 +97,7 @@ impl Block {
     }
 }
 
+#[derive(Debug)]
 pub struct BlockBin {
     pub rseq: Vec<Seq>,
     pub qseq: Vec<Seq>,
@@ -220,7 +238,19 @@ impl BlockBin {
         let mut blocks = self.blocks;
         blocks.sort_by(|a, b| a.pair_id.cmp(&b.pair_id));
 
+        let mut hpx = Vec::new();
+        for i in 0..self.rseq.len() {
+            hpx.push(blocks[i].width as u32);
+        }
+
+        let mut vpx = Vec::new();
+        for j in 0..self.qseq.len() {
+            vpx.push(blocks[j * self.rseq.len()].height as u32);
+        }
+
         BlockTile {
+            hpx,
+            vpx,
             rseq: self.rseq,
             qseq: self.qseq,
             blocks,
