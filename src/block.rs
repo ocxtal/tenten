@@ -49,6 +49,10 @@ impl BlockTile {
     pub fn count(&self) -> usize {
         self.blocks.iter().map(|x| x.count()).sum::<usize>()
     }
+
+    pub fn base_per_pixel(&self) -> usize {
+        self.blocks[0].base_per_pixel
+    }
 }
 
 #[derive(Debug, Default)]

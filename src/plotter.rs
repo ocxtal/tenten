@@ -8,7 +8,7 @@ use anyhow::{Result, anyhow};
 use plotters::coord::Shift;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;
-use plotters_backend::DrawingErrorKind;
+use plotters_backend::{BackendStyle, DrawingErrorKind};
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -246,101 +246,28 @@ impl<'a> StructuredDrawingArea<'a> {
             Err(anyhow!("area not found: {}", key))
         }
     }
-}
 
-// wrapper of Block to make drawable on Plotter's DrawingArea
-#[derive(Debug)]
-struct DrawableBlock<'a>(&'a Block);
-
-impl<'a> DrawableBlock<'a> {
-    fn new(block: &'a Block) -> DrawableBlock<'a> {
-        DrawableBlock(block)
-    }
-}
-
-impl<'a> PointCollection<'a, (i32, i32)> for &'a DrawableBlock<'_> {
-    type Point = &'a (i32, i32);
-    type IntoIter = std::iter::Once<&'a (i32, i32)>;
-
-    fn point_iter(self) -> Self::IntoIter {
-        std::iter::once(&(0, 0))
-    }
-}
-
-impl<DB> Drawable<DB> for DrawableBlock<'_>
-where
-    DB: DrawingBackend,
-{
-    fn draw<I>(&self, pos: I, backend: &mut DB, _: (u32, u32)) -> Result<(), DrawingErrorKind<DB::ErrorType>>
-    where
-        I: Iterator<Item = (i32, i32)>,
-    {
-        let mut pos = pos;
-        let pos = pos.next().unwrap();
-        backend.draw_rect(pos, (pos.0 + 10, pos.1 + 12), &RED, false)?;
+    fn present(&self) -> Result<()> {
+        self.areas[0].present()?;
         Ok(())
     }
 }
 
-pub struct Plotter {
-    margin: usize,
-    spacer: usize,
-    x_label_area_size: usize,
-    y_label_area_size: usize,
+// wrapper of Block to make drawable on Plotter's DrawingArea
+#[derive(Debug)]
+struct DrawableBlock<'a> {
+    block: &'a Block,
     count_per_seed: f64,
     scale: f64,
 }
 
-impl Plotter {
-    pub fn new(count_per_seed: f64, scale: f64) -> Plotter {
-        Plotter {
-            margin: 20,
-            spacer: 1,
-            x_label_area_size: 20,
-            y_label_area_size: 40,
-            // tick: 3,
+impl<'a> DrawableBlock<'a> {
+    fn new(block: &'a Block, count_per_seed: f64, scale: f64) -> DrawableBlock<'a> {
+        DrawableBlock {
+            block,
             count_per_seed,
             scale,
         }
-    }
-
-    // fn calc_boundaries(&self, len: &[usize]) -> Vec<usize> {
-    //     let mut pos = 0;
-    //     let mut boundaries = vec![0];
-    //     for l in len {
-    //         pos += l;
-
-    //         let boundary = pos.div_ceil(self.base_per_pixel);
-    //         pos = (boundary + 1) * self.base_per_pixel; // 1px for bar
-    //         boundaries.push(boundary);
-    //     }
-    //     boundaries
-    // }
-
-    fn draw_origin(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>) {
-        area.fill(&YELLOW).unwrap();
-
-        let style = ShapeStyle {
-            color: BLACK.into(),
-            filled: false,
-            stroke_width: 1,
-        };
-        let path = PathElement::new(&[(0, 0), (0, self.y_label_area_size as i32)], style);
-        area.draw(&path).unwrap();
-
-        // area.draw_pixel((self.y_label_area_size as i32 - 1, 0), &BLACK).unwrap();
-    }
-
-    fn draw_xlabel(area: &DrawingArea<BitMapBackend<'_>, Shift>, seq: &Seq) {
-        // let style = ("sans-serif", 20, &BLACK).into_text_style(area);
-        // area.draw_text(label, &style, (0, 0)).unwrap();
-        // area.fill(&RED).unwrap();
-    }
-
-    fn draw_ylabel(area: &DrawingArea<BitMapBackend<'_>, Shift>, seq: &Seq) {
-        // let style = ("sans-serif", 20, &BLACK).into_text_style(area);
-        // area.draw_text(label, &style, (0, 0)).unwrap();
-        // area.fill(&GREEN).unwrap();
     }
 
     fn cnt_to_color(&self, min: (u8, u8, u8), max: (u8, u8, u8), val: u32) -> (u8, u8, u8) {
@@ -357,33 +284,352 @@ impl Plotter {
         let occ = (occ as i32).clamp(0, 256) as u32;
         blend(min, max, occ)
     }
+}
 
-    fn draw_block(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, block: &Block) -> Result<()> {
-        for (y, line) in block.cnt.chunks(block.width).rev().enumerate() {
+impl<'a> PointCollection<'a, (i32, i32)> for &'a DrawableBlock<'_> {
+    type Point = &'a (i32, i32);
+    type IntoIter = std::iter::Once<&'a (i32, i32)>;
+
+    fn point_iter(self) -> Self::IntoIter {
+        std::iter::once(&(0, 0)) // always anchored at the top left corner
+    }
+}
+
+impl<DB> Drawable<DB> for DrawableBlock<'_>
+where
+    DB: DrawingBackend,
+{
+    fn draw<I>(&self, pos: I, backend: &mut DB, _: (u32, u32)) -> Result<(), DrawingErrorKind<DB::ErrorType>>
+    where
+        I: Iterator<Item = (i32, i32)>,
+    {
+        let mut pos = pos;
+        let pos = pos.next().unwrap();
+        for (y, line) in self.block.cnt.chunks(self.block.width).rev().enumerate() {
             for (x, cnt) in line.iter().enumerate() {
                 let c0 = self.cnt_to_color((255, 255, 255), (255, 0, 64), cnt[0]);
                 let c1 = self.cnt_to_color((255, 255, 255), (0, 64, 255), cnt[1]);
                 let c = std::cmp::min(c0, c1);
-                area.draw_pixel((x as i32, y as i32 + 1), &RGBColor(c.0, c.1, c.2))?;
+                backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), RGBColor(c.0, c.1, c.2).color())?;
+            }
+        }
+        Ok(())
+    }
+}
+
+struct Tick {
+    pos: (i32, i32),
+    len: i32,
+    direction: TickDirection,
+}
+
+enum TickDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl Tick {
+    fn new(pos: (u32, u32), len: u32, direction: TickDirection) -> Tick {
+        Tick {
+            pos: (pos.0 as i32, pos.1 as i32),
+            len: len as i32,
+            direction,
+        }
+    }
+}
+
+impl<'a> PointCollection<'a, (i32, i32)> for &'a Tick {
+    type Point = &'a (i32, i32);
+    type IntoIter = std::iter::Once<&'a (i32, i32)>;
+
+    fn point_iter(self) -> Self::IntoIter {
+        std::iter::once(&(0, 0))
+    }
+}
+
+impl<DB> Drawable<DB> for Tick
+where
+    DB: DrawingBackend,
+{
+    fn draw<I>(&self, pos: I, backend: &mut DB, _: (u32, u32)) -> Result<(), DrawingErrorKind<DB::ErrorType>>
+    where
+        I: Iterator<Item = (i32, i32)>,
+    {
+        let mut pos = pos;
+        let pos = pos.next().unwrap();
+        let pos = (self.pos.0 + pos.0, self.pos.1 + pos.1);
+
+        let style = ShapeStyle {
+            color: BLACK.into(),
+            filled: false,
+            stroke_width: 1,
+        };
+        match self.direction {
+            TickDirection::Up => backend.draw_line((pos.0, pos.1 - self.len), (pos.0, pos.1), &style),
+            TickDirection::Down => backend.draw_line((pos.0, pos.1), (pos.0, pos.1 + self.len), &style),
+            TickDirection::Left => backend.draw_line((pos.0 - self.len, pos.1), (pos.0, pos.1), &style),
+            TickDirection::Right => backend.draw_line((pos.0, pos.1), (pos.0 + self.len, pos.1), &style),
+        }
+    }
+}
+
+struct TickLabel {
+    is_end: (bool, bool),
+    pos: u32,
+    text: String,
+}
+
+fn determine_subunit(tick_pitch: (u32, f64)) -> u64 {
+    10u64.pow(((tick_pitch.0 as f64).log(10.0).floor() as u32 / 3 * 3) as u32)
+}
+
+fn build_tick_labels(seq: &Seq, tick_pitch: (u32, f64), include_ends: (bool, bool)) -> Vec<TickLabel> {
+    let tick_pitch_in_pixel = tick_pitch.0 as usize;
+    let pos_to_pixel = tick_pitch.1 / tick_pitch.0 as f64;
+    let subunit = determine_subunit(tick_pitch);
+
+    let mut labels = Vec::new();
+    let mut push = |seq_pos: usize, extra: usize, is_end: (bool, bool)| {
+        let tick_pos = ((seq_pos - seq.range.start) as f64 * pos_to_pixel) as u32;
+        labels.push(TickLabel {
+            is_end,
+            pos: tick_pos + extra as u32,
+            text: format!("{:.1}", seq_pos as f64 / subunit as f64),
+        });
+    };
+
+    let mut seq_pos = seq.range.start;
+    if include_ends.0 {
+        push(seq_pos, 0, (true, false));
+    }
+    loop {
+        seq_pos = (seq_pos + 1).div_ceil(tick_pitch_in_pixel) * tick_pitch_in_pixel;
+        if seq_pos + tick_pitch_in_pixel / 2 >= seq.range.end {
+            break;
+        }
+        push(seq_pos, 0, (false, false));
+    }
+    if include_ends.1 {
+        push(seq.range.end, 1, (false, true));
+    }
+    labels
+}
+
+pub struct Plotter {
+    margin: usize,
+    spacer_thickness: usize,
+    x_label_area_height: usize,
+    y_label_area_width: usize,
+    label_font_size: usize,
+    axes_thickness: usize,
+    tick_len: usize,
+    tick_label_separation: usize,
+    count_per_seed: f64,
+    scale: f64,
+}
+
+impl Plotter {
+    pub fn new(count_per_seed: f64, scale: f64) -> Plotter {
+        Plotter {
+            margin: 20,
+            spacer_thickness: 1,
+            x_label_area_height: 20,
+            y_label_area_width: 40,
+            label_font_size: 12,
+            axes_thickness: 1,
+            tick_len: 3,
+            tick_label_separation: 5,
+            count_per_seed,
+            scale,
+        }
+    }
+
+    fn determine_tick_pitch(&self, tile: &BlockTile) -> (u32, f64) {
+        let unit_pixels = 15.0 * self.label_font_size as f64;
+        let unit_bases = (unit_pixels * tile.base_per_pixel() as f64).log(10.0);
+        let (f, c) = (unit_bases.fract(), unit_bases.floor());
+        assert!(f <= 1.0 && c >= 1.0);
+
+        let pitch_in_bases = if f < 2.5f64.log(10.0) {
+            10u64.pow(c as u32)
+        } else if f < 5.0f64.log(10.0) {
+            10u64.pow(c as u32 + 1) / 4
+        } else {
+            10u64.pow(c as u32 + 1) / 2
+        };
+
+        (pitch_in_bases as u32, pitch_in_bases as f64 / tile.base_per_pixel() as f64)
+    }
+
+    fn draw_block(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, block: &Block) -> Result<()> {
+        let areas = area.split_by_breakpoints(&[block.width as u32], &[self.spacer_thickness as u32]);
+        let spacer_color = RGBColor(192, 208, 192);
+        areas[0].fill(&spacer_color).unwrap();
+        areas[1].fill(&spacer_color).unwrap();
+        areas[2].draw(&DrawableBlock::new(block, self.count_per_seed, self.scale)).unwrap();
+        areas[3].fill(&spacer_color).unwrap();
+        Ok(())
+    }
+
+    fn draw_tile(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, tile: &BlockTile, brks: &(Breakpoints, Breakpoints)) -> Result<()> {
+        let areas = area.split_by_breakpoints(brks.0.as_slice(), brks.1.as_slice());
+        for (i, area_chunk) in areas.chunks(brks.0.segments()).rev().enumerate() {
+            let blocks = tile.get_row(i);
+            for (area, block) in area_chunk.iter().zip(blocks.iter()) {
+                self.draw_block(area, block)?;
             }
         }
         Ok(())
     }
 
+    fn draw_xlabel(
+        &self,
+        area: &DrawingArea<BitMapBackend<'_>, Shift>,
+        seq: &[Seq],
+        brks: &Breakpoints,
+        tick_pitch: (u32, f64),
+    ) -> Result<()> {
+        let tick_pitch_in_pixel = tick_pitch.0 as usize;
+        let pos_to_pixel = tick_pitch.1 / tick_pitch.0 as f64;
+
+        let style = TextStyle::from(("sans-serif", self.label_font_size as u32).into_font()).color(&BLACK);
+        let (w0, _) = area.estimate_text_size("0", &style).unwrap();
+
+        let (w, h) = area.dim_in_pixel();
+        let areas = area.split_by_breakpoints(brks.as_slice(), &[] as &[u32]);
+        for (area, seq) in areas.iter().zip(seq.iter()) {
+            let areas = area.split_by_breakpoints(&[] as &[u32], &[self.axes_thickness as u32]);
+            areas[0].fill(&BLACK).unwrap();
+
+            log::debug!("x: seq: {:?}, area: {:?}", seq, areas[1].get_pixel_range());
+            let dim = areas[1].dim_in_pixel();
+            let ticks = build_tick_labels(seq, tick_pitch, (true, true));
+            for tick in &ticks {
+                if !tick.is_end.0 {
+                    areas[1]
+                        .draw(&Tick::new((tick.pos, 0), self.tick_len as u32, TickDirection::Down))
+                        .unwrap();
+                }
+
+                let (w, h) = areas[1].estimate_text_size(&tick.text, &style).unwrap();
+                let pos = if tick.is_end.0 {
+                    (tick.pos as i32 + w0 as i32 / 2, self.tick_label_separation as i32)
+                } else if !tick.is_end.1 {
+                    (tick.pos as i32 - w as i32 / 2, self.tick_label_separation as i32)
+                } else {
+                    (tick.pos as i32 - w as i32 - w0 as i32 / 2, self.tick_label_separation as i32)
+                };
+                areas[1].draw_text(&tick.text, &style, pos).unwrap();
+            }
+        }
+        Ok(())
+    }
+
+    fn draw_ylabel(
+        &self,
+        area: &DrawingArea<BitMapBackend<'_>, Shift>,
+        seq: &[Seq],
+        brks: &Breakpoints,
+        tick_pitch: (u32, f64),
+    ) -> Result<()> {
+        let tick_pitch_in_pixel = tick_pitch.0 as usize;
+        let pos_to_pixel = tick_pitch.1 / tick_pitch.0 as f64;
+
+        let style = TextStyle::from(("sans-serif", self.label_font_size as u32).into_font()).color(&BLACK);
+
+        let (w, h) = area.dim_in_pixel();
+        let areas = area.split_by_breakpoints(&[] as &[u32], brks.as_slice());
+        for (area, seq) in areas.iter().rev().zip(seq.iter()) {
+            let areas = area.split_by_breakpoints(&[w as u32 - self.axes_thickness as u32], &[] as &[u32]);
+            areas[1].fill(&BLACK).unwrap();
+
+            log::debug!("y: seq: {:?}, area: {:?}", seq, areas[0].get_pixel_range());
+            let dim = areas[0].dim_in_pixel();
+            let ticks = build_tick_labels(seq, tick_pitch, (true, true));
+            for tick in &ticks {
+                if !tick.is_end.0 {
+                    areas[0]
+                        .draw(&Tick::new(
+                            (dim.0 - 1, dim.1 - tick.pos - 1),
+                            self.tick_len as u32,
+                            TickDirection::Left,
+                        ))
+                        .unwrap();
+                }
+
+                let (w, h) = areas[1].estimate_text_size(&tick.text, &style).unwrap();
+                let pos = if tick.is_end.0 {
+                    (
+                        dim.0 as i32 - w as i32 - self.tick_label_separation as i32 - 1,
+                        dim.1 as i32 - tick.pos as i32 - h as i32 - 1,
+                    )
+                } else if !tick.is_end.1 {
+                    (
+                        dim.0 as i32 - w as i32 - self.tick_label_separation as i32 - 1,
+                        dim.1 as i32 - tick.pos as i32 - h as i32 / 2 - 1,
+                    )
+                } else {
+                    (
+                        dim.0 as i32 - w as i32 - self.tick_label_separation as i32 - 1,
+                        dim.1 as i32 - tick.pos as i32 + h as i32 / 4 - 1,
+                    )
+                };
+                areas[0].draw_text(&tick.text, &style, pos).unwrap();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn draw_origin(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>) -> Result<()> {
+        let (w, h) = area.dim_in_pixel();
+        let t = self.axes_thickness as u32;
+        let areas = area.split_by_breakpoints(&[w as u32 - t], &[t]);
+
+        areas[1].fill(&BLACK).unwrap();
+        areas[0]
+            .draw(&Tick::new(
+                (areas[0].dim_in_pixel().0 - 1, 0),
+                self.tick_len as u32,
+                TickDirection::Left,
+            ))
+            .unwrap();
+        areas[3]
+            .draw(&Tick::new(
+                (areas[3].dim_in_pixel().0 - 1, 0),
+                self.tick_len as u32,
+                TickDirection::Down,
+            ))
+            .unwrap();
+        Ok(())
+    }
+
     pub fn plot(&self, name: &str, tile: &BlockTile) -> Result<()> {
-        let block_pixels = (
-            tile.horizontal_pixels().iter().map(|&x| x + self.spacer as u32).collect::<Vec<_>>(),
-            tile.vertical_pixels().iter().map(|&x| x + self.spacer as u32).collect::<Vec<_>>(),
+        let tick_pitch = self.determine_tick_pitch(tile);
+        log::debug!("tick pitch: {:?}", tick_pitch);
+
+        let pixels = (
+            tile.horizontal_pixels()
+                .iter()
+                .map(|&x| x + self.spacer_thickness as u32)
+                .collect::<Vec<_>>(),
+            tile.vertical_pixels()
+                .iter()
+                .rev()
+                .map(|&x| x + self.spacer_thickness as u32)
+                .collect::<Vec<_>>(),
         );
-        let block_brks = (Breakpoints::from_pixels(&block_pixels.0), Breakpoints::from_pixels(&block_pixels.1));
+        let brks = (Breakpoints::from_pixels(&pixels.0), Breakpoints::from_pixels(&pixels.1));
 
         let layout = LayoutElem::Margined(
             "margin".to_string(),
             Box::new(LayoutElem::Margined(
                 "label".to_string(),
-                Box::new(LayoutElem::Rect("blocks".to_string(), block_brks.0.pixels(), block_brks.1.pixels())),
-                (self.y_label_area_size as u32, 0),
-                (0, self.x_label_area_size as u32),
+                Box::new(LayoutElem::Rect("blocks".to_string(), brks.0.pixels(), brks.1.pixels())),
+                (self.y_label_area_width as u32, 0),
+                (0, self.x_label_area_height as u32),
             )),
             (self.margin as u32, self.margin as u32),
             (self.margin as u32, self.margin as u32),
@@ -391,185 +637,22 @@ impl Plotter {
         let areas = StructuredDrawingArea::from_layout(&layout, name)?;
         dbg!(&areas.index);
 
-        let ylabel = areas.get_area(".margin[center].label[left]")?;
-        ylabel.fill(&RED).unwrap();
+        self.draw_tile(areas.get_area(".margin[center].label[center]")?, tile, &brks)?;
+        self.draw_ylabel(
+            areas.get_area(".margin[center].label[left]")?,
+            tile.vertical_seqs(),
+            &brks.1,
+            tick_pitch,
+        )?;
+        self.draw_xlabel(
+            areas.get_area(".margin[center].label[bottom]")?,
+            tile.horizontal_seqs(),
+            &brks.0,
+            tick_pitch,
+        )?;
+        self.draw_origin(areas.get_area(".margin[center].label[left-bottom]")?)?;
+        areas.present()?;
 
-        let block_area = areas.get_area(".margin[center].label[center]")?;
-        let block_areas = block_area.split_by_breakpoints(block_brks.0.as_slice(), block_brks.1.as_slice());
-        for (i, areas) in block_areas.chunks(block_brks.0.segments()).rev().enumerate() {
-            let blocks = tile.get_row(i);
-            for (area, block) in areas.iter().zip(blocks.iter()) {
-                area.draw(&DrawableBlock(block)).unwrap();
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn plot2(&self, name: &str, tile: &BlockTile) -> Result<()> {
-        // let block_pixels = (
-        //     tile.rpixels().iter().map(|&x| x + self.spacer as u32).collect::<Vec<_>>(),
-        //     tile.qpixels().iter().map(|&x| x + self.spacer as u32).collect::<Vec<_>>(),
-        // );
-
-        // let mut block_brks = (Breakpoints::from_pixels(&block_pixels.0), Breakpoints::from_pixels(&block_pixels.1));
-        // let mut label_brks = (
-        //     block_brks.0.to_smashed().to_margined(Some(self.y_label_area_size as u32), None),
-        //     block_brks.1.to_smashed().to_margined(Some(self.x_label_area_size as u32), None),
-        // );
-        // let mut margin_brks = (
-        //     label_brks.0.to_smashed().to_margined(Some(self.margin as u32), Some(self.margin as u32)),
-        //     label_brks.1.to_smashed().to_margined(Some(self.margin as u32), Some(self.margin as u32)),
-        // );
-        // let pixels = (margin_brks.0.pixels(), margin_brks.0.pixels());
-        // if pixels.0 >= 65536 || pixels.1 >= 65536 {
-        //     return Err(anyhow!("plotting area too large: {} x {}", pixels.0, pixels.1));
-        // }
-
-        // block_brks.1.reverse();
-        // label_brks.1.reverse();
-        // margin_brks.1.reverse();
-
-        // dbg!(&block_pixels);
-        // dbg!(&block_brks);
-        // dbg!(&label_brks);
-        // dbg!(&margin_brks);
-
-        // let root = BitMapBackend::new(&name, (pixels.0, pixels.1)).into_drawing_area();
-        // root.fill(&WHITE).unwrap();
-
-        // let margin_areas = root.split_by_breakpoints(margin_brks.0.as_slice(), margin_brks.1.as_slice());
-        // for (i, a) in margin_areas.iter().enumerate() {
-        //     log::debug!("margin area {}: {:?}", i, a.get_pixel_range());
-        // }
-        // let label_areas = margin_areas[4].split_by_breakpoints(label_brks.0.as_slice(), label_brks.1.as_slice());
-        // for (i, a) in label_areas.iter().enumerate() {
-        //     log::debug!("label area {}: {:?}", i, a.get_pixel_range());
-        // }
-        // self.draw_origin(&label_areas[2]);
-
-        // let xlabel_areas = label_areas[3].split_by_breakpoints(block_brks.0.as_slice(), &[0u32][1..]);
-        // for (a, s) in xlabel_areas.iter().zip(tile.rseq.iter()) {
-        //     log::debug!("x: seq: {:?} label at {:?}", s, a.get_pixel_range());
-        //     Self::draw_xlabel(a, s);
-        // }
-
-        // let ylabel_areas = label_areas[0].split_by_breakpoints(&[0u32][1..], block_brks.1.as_slice());
-        // for (a, s) in ylabel_areas.iter().zip(tile.qseq.iter()) {
-        //     log::debug!("y: seq: {:?} label at {:?}", s, a.get_pixel_range());
-        //     Self::draw_ylabel(a, s);
-        // }
-
-        // let block_areas = label_areas[1].split_by_breakpoints(block_brks.0.as_slice(), block_brks.1.as_slice());
-        // for (ac, bc) in block_areas.chunks(tile.rseq.len()).rev().zip(tile.blocks.chunks(tile.rseq.len())) {
-        //     for (a, b) in ac.iter().zip(bc.iter()) {
-        //         self.draw_block(a, b)?;
-        //     }
-        // }
-
-        // let rlen = tile.rseq.iter().map(|x| x.range.len()).collect::<Vec<_>>();
-        // let rbnd = self.calc_boundaries(&rlen);
-
-        // let qlen = tile.qseq.iter().map(|x| x.range.len()).collect::<Vec<_>>();
-        // let qbnd = self.calc_boundaries(&qlen);
-
-        // let margin = 20;
-        // let x_label_area_size = 10;
-        // let y_label_area_size = 40;
-        // let rstart = *rbnd.first().unwrap() + 1;
-        // let qstart = *qbnd.first().unwrap() + 1;
-        // let plot_width = *rbnd.last().unwrap() - rstart;
-        // let plot_height = *qbnd.last().unwrap() - qstart;
-
-        // if plot_width >= 65536 || plot_height >= 65536 {
-        //     return Err(anyhow!("plotting area too large: {} x {}", plot_width, plot_height));
-        // }
-        // let root = BitMapBackend::new(
-        //     &name,
-        //     (
-        //         2 * margin + y_label_area_size + plot_width as u32,
-        //         2 * margin + x_label_area_size + plot_height as u32,
-        //     ),
-        // )
-        // .into_drawing_area();
-        // root.fill(&WHITE).unwrap();
-
-        // let mut chart = ChartBuilder::on(&root)
-        //     .margin(margin)
-        //     .x_label_area_size(x_label_area_size)
-        //     .y_label_area_size(y_label_area_size)
-        //     .build_cartesian_2d(
-        //         0.0..(plot_width * self.base_per_pixel) as f64,
-        //         0.0..(plot_height * self.base_per_pixel) as f64,
-        //     )?;
-
-        // chart
-        //     .configure_mesh()
-        //     .disable_x_mesh()
-        //     .disable_y_mesh()
-        //     .x_label_formatter(&|x| format!("{:.1?}", x / 1000.0))
-        //     .y_label_formatter(&|y| format!("{:.1?}", y / 1000.0))
-        //     .draw()?;
-
-        // let plotting_area = chart.plotting_area();
-        // let blend = |min: (u8, u8, u8), max: (u8, u8, u8), val: u32| -> (u8, u8, u8) {
-        //     let r = (min.0 as u32 * (256 - val) + max.0 as u32 * val) / 256;
-        //     let g = (min.1 as u32 * (256 - val) + max.1 as u32 * val) / 256;
-        //     let b = (min.2 as u32 * (256 - val) + max.2 as u32 * val) / 256;
-
-        //     (r as u8, g as u8, b as u8)
-        // };
-        // let to_color = |min: (u8, u8, u8), max: (u8, u8, u8), val: u32| -> (u8, u8, u8) {
-        //     let occ = val as f64 * count_per_seed;
-        //     let occ = scale * occ.log2();
-        //     let occ = (occ as i32).clamp(0, 256) as u32;
-
-        //     blend(min, max, occ)
-        // };
-
-        // for rid in 0..rbnd.len() - 1 {
-        //     for qid in 0..qbnd.len() - 1 {
-        //         let pair_id = (qid << 32) | rid;
-        //         if let Some(&cid) = self.cmap.get(&pair_id) {
-        //             let block = &self.blocks[cid];
-        //             for (i, c) in block.cnt.iter().enumerate() {
-        //                 let x = i % block.width + rbnd[rid];
-        //                 let y = i / block.width + qbnd[qid];
-        //                 let c0 = to_color((255, 255, 255), (255, 0, 64), c[0]);
-        //                 let c1 = to_color((255, 255, 255), (0, 64, 255), c[1]);
-        //                 let c = std::cmp::min(c0, c1);
-        //                 plotting_area.draw_pixel(
-        //                     ((x * self.base_per_pixel) as f64, (y * self.base_per_pixel) as f64),
-        //                     &RGBColor(c.0, c.1, c.2),
-        //                 )?;
-        //             }
-        //         }
-        //     }
-        // }
-
-        // // draw boundaries
-        // for &x in &rbnd {
-        //     for y in 0..=plot_height {
-        //         plotting_area.draw_pixel(
-        //             ((x * self.base_per_pixel) as f64, (y * self.base_per_pixel) as f64),
-        //             &RGBColor(192, 208, 192),
-        //         )?;
-        //     }
-        // }
-        // for &y in &qbnd {
-        //     for x in 0..=plot_width {
-        //         plotting_area.draw_pixel(
-        //             ((x * self.base_per_pixel) as f64, (y * self.base_per_pixel) as f64),
-        //             &RGBColor(192, 208, 192),
-        //         )?;
-        //     }
-        // }
-
-        // // let style = ("sans-serif", 20, &BLACK).into_text_style(&root);
-        // // root.draw_text("aaaa", &style, (100, 100)).unwrap();
-
-        // root.present().unwrap();
-        // log::info!("plotted: {:?} with query {:?} and reference {:?}", name, self.qseq, self.rseq);
         Ok(())
     }
 }
