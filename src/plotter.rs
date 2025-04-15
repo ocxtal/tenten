@@ -421,7 +421,10 @@ pub struct Plotter {
     margin: usize,
     spacer_thickness: usize,
     x_label_area_height: usize,
+    x_tick_area_height: usize,
     y_label_area_width: usize,
+    y_tick_area_width: usize,
+    colorbar_area_height: usize,
     label_font_size: usize,
     axes_thickness: usize,
     tick_len: usize,
@@ -435,8 +438,11 @@ impl Plotter {
         Plotter {
             margin: 20,
             spacer_thickness: 1,
-            x_label_area_height: 20,
-            y_label_area_width: 40,
+            x_label_area_height: 15,
+            x_tick_area_height: 30,
+            y_label_area_width: 20,
+            y_tick_area_width: 40,
+            colorbar_area_height: 30,
             label_font_size: 12,
             axes_thickness: 1,
             tick_len: 3,
@@ -499,7 +505,6 @@ impl Plotter {
             let areas = area.split_by_breakpoints(&[] as &[u32], [self.axes_thickness as u32]);
             areas[0].fill(&BLACK).unwrap();
 
-            log::debug!("x: seq: {:?}, area: {:?}", seq, areas[1].get_pixel_range());
             let ticks = build_tick_labels(seq, tick_pitch, (true, true));
             for tick in &ticks {
                 if !tick.is_end.0 {
@@ -537,7 +542,6 @@ impl Plotter {
             let areas = area.split_by_breakpoints([w - self.axes_thickness as u32], &[] as &[u32]);
             areas[1].fill(&BLACK).unwrap();
 
-            log::debug!("y: seq: {:?}, area: {:?}", seq, areas[0].get_pixel_range());
             let dim = areas[0].dim_in_pixel();
             let ticks = build_tick_labels(seq, tick_pitch, (true, true));
             for tick in &ticks {
@@ -619,30 +623,34 @@ impl Plotter {
             "margin".to_string(),
             Box::new(LayoutElem::Margined(
                 "label".to_string(),
-                Box::new(LayoutElem::Rect("blocks".to_string(), brks.0.pixels(), brks.1.pixels())),
+                Box::new(LayoutElem::Margined(
+                    "tick".to_string(),
+                    Box::new(LayoutElem::Rect("blocks".to_string(), brks.0.pixels(), brks.1.pixels())),
+                    (self.y_tick_area_width as u32, 0),
+                    (0, self.x_tick_area_height as u32),
+                )),
                 (self.y_label_area_width as u32, 0),
-                (0, self.x_label_area_height as u32),
+                (self.colorbar_area_height as u32, self.x_label_area_height as u32),
             )),
             (self.margin as u32, self.margin as u32),
             (self.margin as u32, self.margin as u32),
         );
         let areas = StructuredDrawingArea::from_layout(&layout, name)?;
-        dbg!(&areas.index);
 
-        self.draw_tile(areas.get_area(".margin[center].label[center]")?, tile, &brks)?;
+        self.draw_tile(areas.get_area(".margin[center].label[center].tick[center]")?, tile, &brks)?;
         self.draw_ylabel(
-            areas.get_area(".margin[center].label[left]")?,
+            areas.get_area(".margin[center].label[center].tick[left]")?,
             tile.vertical_seqs(),
             &brks.1,
             tick_pitch,
         )?;
         self.draw_xlabel(
-            areas.get_area(".margin[center].label[bottom]")?,
+            areas.get_area(".margin[center].label[center].tick[bottom]")?,
             tile.horizontal_seqs(),
             &brks.0,
             tick_pitch,
         )?;
-        self.draw_origin(areas.get_area(".margin[center].label[left-bottom]")?)?;
+        self.draw_origin(areas.get_area(".margin[center].label[center].tick[left-bottom]")?)?;
         areas.present()?;
 
         Ok(())
