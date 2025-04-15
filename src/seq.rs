@@ -127,6 +127,6 @@ pub fn load_range(file: &str, format: &RangeFormat) -> Result<Vec<Seq>> {
     }
 }
 
-pub fn filter_range(ranges: &[Seq], filter: &[Seq]) -> Vec<Seq> {
+pub fn filter_range(ranges: &[Seq], _filter: &[Seq]) -> Vec<Seq> {
     ranges.to_vec()
 }

@@ -34,45 +34,45 @@ impl Breakpoints {
         &self.v[1..self.v.len() - 1]
     }
 
-    fn extend_slice(&mut self, v: &[u32]) {
-        let offset = *self.v.last().unwrap();
-        for b in v.iter().skip(1) {
-            self.v.push(offset + b);
-        }
-    }
+    // fn extend_slice(&mut self, v: &[u32]) {
+    //     let offset = *self.v.last().unwrap();
+    //     for b in v.iter().skip(1) {
+    //         self.v.push(offset + b);
+    //     }
+    // }
 
-    fn extend(&mut self, other: &Breakpoints) {
-        self.extend_slice(&other.v);
-    }
+    // fn extend(&mut self, other: &Breakpoints) {
+    //     self.extend_slice(&other.v);
+    // }
 
-    fn to_margined(&self, left: Option<u32>, right: Option<u32>) -> Breakpoints {
-        let mut b = Breakpoints { v: vec![0] };
-        if let Some(left) = left {
-            b.extend_slice(&[0, left]);
-        }
-        b.extend_slice(&self.v);
-        if let Some(right) = right {
-            b.extend_slice(&[0, right]);
-        }
-        b
-    }
+    // fn to_margined(&self, left: Option<u32>, right: Option<u32>) -> Breakpoints {
+    //     let mut b = Breakpoints { v: vec![0] };
+    //     if let Some(left) = left {
+    //         b.extend_slice(&[0, left]);
+    //     }
+    //     b.extend_slice(&self.v);
+    //     if let Some(right) = right {
+    //         b.extend_slice(&[0, right]);
+    //     }
+    //     b
+    // }
 
-    fn to_smashed(&self) -> Breakpoints {
-        let last = self.v.last().unwrap();
-        Breakpoints { v: vec![0, *last] }
-    }
+    // fn to_smashed(&self) -> Breakpoints {
+    //     let last = self.v.last().unwrap();
+    //     Breakpoints { v: vec![0, *last] }
+    // }
 
-    fn reverse(&mut self) {
-        dbg!(&self.v);
-        let mut acc = 0;
-        let mut v = vec![0];
-        for w in self.v.windows(2).rev() {
-            acc += w[1] - w[0];
-            v.push(acc);
-        }
-        self.v = v;
-        dbg!(&self.v);
-    }
+    // fn reverse(&mut self) {
+    //     dbg!(&self.v);
+    //     let mut acc = 0;
+    //     let mut v = vec![0];
+    //     for w in self.v.windows(2).rev() {
+    //         acc += w[1] - w[0];
+    //         v.push(acc);
+    //     }
+    //     self.v = v;
+    //     dbg!(&self.v);
+    // }
 
     fn pixels(&self) -> u32 {
         *self.v.last().unwrap()
@@ -85,8 +85,8 @@ impl Breakpoints {
 
 enum LayoutElem {
     Rect(String, u32, u32),
-    Horizontal(String, Box<Vec<LayoutElem>>),
-    Vertical(String, Box<Vec<LayoutElem>>),
+    Horizontal(String, Vec<LayoutElem>),
+    Vertical(String, Vec<LayoutElem>),
     Margined(String, Box<LayoutElem>, (u32, u32), (u32, u32)),
 }
 
@@ -382,7 +382,7 @@ struct TickLabel {
 }
 
 fn determine_subunit(tick_pitch: (u32, f64)) -> u64 {
-    10u64.pow(((tick_pitch.0 as f64).log(10.0).floor() as u32 / 3 * 3) as u32)
+    10u64.pow((tick_pitch.0 as f64).log(10.0).floor() as u32 / 3 * 3)
 }
 
 fn build_tick_labels(seq: &Seq, tick_pitch: (u32, f64), include_ends: (bool, bool)) -> Vec<TickLabel> {
@@ -464,7 +464,7 @@ impl Plotter {
     }
 
     fn draw_block(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, block: &Block) -> Result<()> {
-        let areas = area.split_by_breakpoints(&[block.width as u32], &[self.spacer_thickness as u32]);
+        let areas = area.split_by_breakpoints([block.width as u32], [self.spacer_thickness as u32]);
         let spacer_color = RGBColor(192, 208, 192);
         areas[0].fill(&spacer_color).unwrap();
         areas[1].fill(&spacer_color).unwrap();
@@ -491,20 +491,15 @@ impl Plotter {
         brks: &Breakpoints,
         tick_pitch: (u32, f64),
     ) -> Result<()> {
-        let tick_pitch_in_pixel = tick_pitch.0 as usize;
-        let pos_to_pixel = tick_pitch.1 / tick_pitch.0 as f64;
-
         let style = TextStyle::from(("sans-serif", self.label_font_size as u32).into_font()).color(&BLACK);
         let (w0, _) = area.estimate_text_size("0", &style).unwrap();
 
-        let (w, h) = area.dim_in_pixel();
         let areas = area.split_by_breakpoints(brks.as_slice(), &[] as &[u32]);
         for (area, seq) in areas.iter().zip(seq.iter()) {
-            let areas = area.split_by_breakpoints(&[] as &[u32], &[self.axes_thickness as u32]);
+            let areas = area.split_by_breakpoints(&[] as &[u32], [self.axes_thickness as u32]);
             areas[0].fill(&BLACK).unwrap();
 
             log::debug!("x: seq: {:?}, area: {:?}", seq, areas[1].get_pixel_range());
-            let dim = areas[1].dim_in_pixel();
             let ticks = build_tick_labels(seq, tick_pitch, (true, true));
             for tick in &ticks {
                 if !tick.is_end.0 {
@@ -513,7 +508,7 @@ impl Plotter {
                         .unwrap();
                 }
 
-                let (w, h) = areas[1].estimate_text_size(&tick.text, &style).unwrap();
+                let (w, _) = areas[1].estimate_text_size(&tick.text, &style).unwrap();
                 let pos = if tick.is_end.0 {
                     (tick.pos as i32 + w0 as i32 / 2, self.tick_label_separation as i32)
                 } else if !tick.is_end.1 {
@@ -534,15 +529,12 @@ impl Plotter {
         brks: &Breakpoints,
         tick_pitch: (u32, f64),
     ) -> Result<()> {
-        let tick_pitch_in_pixel = tick_pitch.0 as usize;
-        let pos_to_pixel = tick_pitch.1 / tick_pitch.0 as f64;
-
         let style = TextStyle::from(("sans-serif", self.label_font_size as u32).into_font()).color(&BLACK);
 
-        let (w, h) = area.dim_in_pixel();
+        let (w, _) = area.dim_in_pixel();
         let areas = area.split_by_breakpoints(&[] as &[u32], brks.as_slice());
         for (area, seq) in areas.iter().rev().zip(seq.iter()) {
-            let areas = area.split_by_breakpoints(&[w as u32 - self.axes_thickness as u32], &[] as &[u32]);
+            let areas = area.split_by_breakpoints([w - self.axes_thickness as u32], &[] as &[u32]);
             areas[1].fill(&BLACK).unwrap();
 
             log::debug!("y: seq: {:?}, area: {:?}", seq, areas[0].get_pixel_range());
@@ -584,9 +576,9 @@ impl Plotter {
     }
 
     fn draw_origin(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>) -> Result<()> {
-        let (w, h) = area.dim_in_pixel();
+        let (w, _) = area.dim_in_pixel();
         let t = self.axes_thickness as u32;
-        let areas = area.split_by_breakpoints(&[w as u32 - t], &[t]);
+        let areas = area.split_by_breakpoints([w - t], [t]);
 
         areas[1].fill(&BLACK).unwrap();
         areas[0]

@@ -265,7 +265,7 @@ impl Context {
 
     fn plot_iterm2(&self, tile: &BlockTile) {
         let mut file = NamedTempFile::with_suffix(".png").unwrap();
-        self.plotter.plot(&file.path().to_str().unwrap(), tile).unwrap();
+        self.plotter.plot(file.path().to_str().unwrap(), tile).unwrap();
 
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
@@ -304,11 +304,11 @@ impl Context {
         let bin = std::mem::replace(&mut self.bin, BlockBin::new(&self.rseq, &self.qseq, self.args.base_per_pixel));
         if self.args.split_plot {
             for bin in bin.split() {
-                let tile = bin.to_tile();
+                let tile = bin.into_tile();
                 self.plot(&tile);
             }
         } else {
-            let tile = bin.to_tile();
+            let tile = bin.into_tile();
             self.plot(&tile);
         }
     }

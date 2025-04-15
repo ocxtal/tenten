@@ -32,13 +32,13 @@ impl BlockTile {
         &self.qseq
     }
 
-    pub fn horizontal_blocks(&self) -> usize {
-        self.rseq.len()
-    }
+    // pub fn horizontal_blocks(&self) -> usize {
+    //     self.rseq.len()
+    // }
 
-    pub fn vertical_blocks(&self) -> usize {
-        self.qseq.len()
-    }
+    // pub fn vertical_blocks(&self) -> usize {
+    //     self.qseq.len()
+    // }
 
     pub fn get_row(&self, row: usize) -> &[Block] {
         let start = row * self.rseq.len();
@@ -238,18 +238,18 @@ impl BlockBin {
         v
     }
 
-    pub fn to_tile(self) -> BlockTile {
+    pub fn into_tile(self) -> BlockTile {
         let mut blocks = self.blocks;
         blocks.sort_by(|a, b| a.pair_id.cmp(&b.pair_id));
 
         let mut hpx = Vec::new();
-        for i in 0..self.rseq.len() {
-            hpx.push(blocks[i].width as u32);
+        for block in blocks.iter().take(self.rseq.len()) {
+            hpx.push(block.width as u32);
         }
 
         let mut vpx = Vec::new();
-        for j in 0..self.qseq.len() {
-            vpx.push(blocks[j * self.rseq.len()].height as u32);
+        for block_chunk in blocks.chunks(self.rseq.len()) {
+            vpx.push(block_chunk[0].height as u32);
         }
 
         BlockTile {
