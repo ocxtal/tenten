@@ -521,7 +521,7 @@ impl<'a> Plotter<'a> {
             legend_left_margin: 40,
             legend_bottom_margin: 10,
             color_scale_height: 20,
-            color_scale_width: 256,
+            color_scale_width: 100,
             color_scale_font_size: 12,
             length_scale_height: 20,
             length_scale_width: 150,
@@ -572,9 +572,9 @@ impl<'a> Plotter<'a> {
         }
     }
 
-    fn determine_tick_pitch(&self, tile: &BlockTile) -> (u32, f64) {
+    fn determine_tick_pitch(&self, base_per_pixel: usize) -> (u32, f64) {
         let unit_pixels = 15.0 * self.c.tick_label_font_size as f64;
-        let unit_bases = (unit_pixels * tile.base_per_pixel() as f64).log(10.0);
+        let unit_bases = (unit_pixels * base_per_pixel as f64).log(10.0);
         let (f, c) = (unit_bases.fract(), unit_bases.floor());
         assert!(f <= 1.0 && c >= 1.0);
 
@@ -586,7 +586,7 @@ impl<'a> Plotter<'a> {
             10u64.pow(c as u32 + 1) / 2
         };
 
-        (pitch_in_bases as u32, pitch_in_bases as f64 / tile.base_per_pixel() as f64)
+        (pitch_in_bases as u32, pitch_in_bases as f64 / base_per_pixel as f64)
     }
 
     fn draw_block(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, block: &Block, color_map: &ColorMap) -> Result<()> {
@@ -763,7 +763,7 @@ impl<'a> Plotter<'a> {
     }
 
     fn draw_length_scale(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, tile: &BlockTile) -> Result<()> {
-        let tick_pitch = self.determine_tick_pitch(tile);
+        let tick_pitch = self.determine_tick_pitch(tile.base_per_pixel());
         let subunit = determine_subunit(tick_pitch);
         let subunit = ["bp", "kbp", "Mbp", "Gbp"][subunit.ilog(10) as usize / 3];
 
@@ -776,7 +776,6 @@ impl<'a> Plotter<'a> {
             last.text = format!("{} {}", last.text, subunit);
         }
 
-        let w = ticks.last().unwrap().pos + 1;
         let areas = area.split_by_breakpoints(
             &[] as &[u32],
             [
@@ -788,6 +787,7 @@ impl<'a> Plotter<'a> {
 
         // draw axis
         {
+            let w = ticks.last().unwrap().pos + 1;
             let areas = areas[1].split_by_breakpoints(&[w], &[] as &[u32]);
             areas[0].fill(&BLACK).unwrap();
         }
@@ -813,28 +813,78 @@ impl<'a> Plotter<'a> {
     }
 
     fn draw_color_scale(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>) -> Result<()> {
-        // let areas = area.split_by_breakpoints(&[] as &[u32], [self.colorbar_area_height as u32]);
-        // let (w, h) = areas[0].dim_in_pixel();
-        // let color_scale_style = ShapeStyle {
-        //     color: RGBColor(255, 0, 0),
-        //     filled: true,
-        //     stroke_width: 1,
-        // };
-        // for i in 0..w {
-        //     let c = RGBColor(
-        //         (i * 255 / w) as u8,
-        //         (i * 255 / w) as u8,
-        //         (i * 255 / w) as u8,
-        //     );
-        //     areas[0].draw(&Rectangle::new([(i, 0), (i + 1, h)], color_scale_style.color(c)))?;
-        // }
+        let max_seeds = 1000;
+        let tick_pitch = self.determine_tick_pitch(max_seeds / self.c.color_scale_width);
+
+        let dummy_seq = Seq {
+            name: "".to_string(),
+            range: 0..max_seeds,
+        };
+        let mut ticks = build_tick_labels(&dummy_seq, tick_pitch, (true, true));
+        if let Some(last) = ticks.last_mut() {
+            last.text = format!("{} seeds/pixel", last.text);
+        }
+
+        let areas = area.split_by_breakpoints(
+            &[] as &[u32],
+            [
+                self.c.tick_len as u32,
+                self.c.tick_len as u32 + self.c.axes_thickness as u32,
+                self.c.tick_len as u32 + self.c.axes_thickness as u32 + self.c.tick_label_setback as u32,
+            ],
+        );
+        // draw axis
+        {
+            let w = ticks.last().unwrap().pos + 1;
+            let areas = areas[1].split_by_breakpoints(&[w], &[] as &[u32]);
+            areas[0].fill(&BLACK).unwrap();
+        }
+        // upward ticks
+        self.draw_ticks(&areas[0], &areas[3], &ticks, |tick| TickAnchor {
+            hide_tick: false,
+            tick_pos: (tick.pos, self.c.tick_len as u32 - 1),
+            tick_dir: TickDirection::Up,
+            hide_label: true,
+            label_pos: (0, 0),
+            label_anchor: self.x_seq_name_anchors[0],
+        })?;
+        // downward ticks
+        self.draw_ticks(&areas[2], &areas[3], &ticks, |tick| TickAnchor {
+            hide_tick: false,
+            tick_pos: (tick.pos, 0),
+            tick_dir: TickDirection::Down,
+            hide_label: false,
+            label_pos: (tick.pos as i32, 0),
+            label_anchor: self.x_seq_name_anchors[1],
+        })?;
+        // draw color scale
+        for i in 0..=self.c.color_scale_width {
+            let cnt = i as f64 * max_seeds as f64 / self.c.color_scale_width as f64;
+            let c = self.color_map.get_color(&[0, 1], cnt as u32);
+            areas[0].draw(&Rectangle::new(
+                [(i as i32 + 1, 0), (i as i32 + 2, self.c.tick_len as i32)],
+                ShapeStyle {
+                    color: RGBColor(c.0, c.1, c.2).into(),
+                    filled: true,
+                    stroke_width: 0,
+                },
+            ))?;
+
+            let c = self.color_map.get_color(&[0, 2], cnt as u32);
+            areas[2].draw(&Rectangle::new(
+                [(i as i32 + 1, 0), (i as i32 + 2, self.c.tick_len as i32)],
+                ShapeStyle {
+                    color: RGBColor(c.0, c.1, c.2).into(),
+                    filled: true,
+                    stroke_width: 0,
+                },
+            ))?;
+        }
         Ok(())
     }
 
     pub fn plot(&self, name: &str, tile: &BlockTile) -> Result<()> {
-        let tick_pitch = self.determine_tick_pitch(tile);
-        log::debug!("tick pitch: {:?}", tick_pitch);
-
+        let tick_pitch = self.determine_tick_pitch(tile.base_per_pixel());
         let pixels = (
             tile.horizontal_pixels()
                 .iter()
