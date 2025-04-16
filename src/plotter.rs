@@ -8,6 +8,7 @@ use anyhow::{Result, anyhow};
 use plotters::coord::Shift;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;
+use plotters::style::text_anchor::{HPos, Pos, VPos};
 use plotters_backend::{BackendStyle, DrawingErrorKind};
 use std::collections::HashMap;
 
@@ -381,6 +382,16 @@ struct TickLabel {
     text: String,
 }
 
+impl TickLabel {
+    fn index(&self) -> usize {
+        match (self.is_end.1, self.is_end.0) {
+            (false, true) | (true, true) => 0,
+            (false, false) => 1,
+            (true, false) => 2,
+        }
+    }
+}
+
 fn determine_subunit(tick_pitch: (u32, f64)) -> u64 {
     10u64.pow((tick_pitch.0 as f64).log(10.0).floor() as u32 / 3 * 3)
 }
@@ -421,39 +432,47 @@ pub struct Plotter {
     margin: usize,
     spacer_thickness: usize,
     x_label_area_height: usize,
-    x_tick_area_height: usize,
     y_label_area_width: usize,
-    y_tick_area_width: usize,
     colorbar_area_height: usize,
-    label_font_size: usize,
     axes_thickness: usize,
     tick_len: usize,
-    tick_label_separation: usize,
+    tick_label_setback: usize,
+    tick_label_font_size: usize,
+    x_seq_name_setback: usize,
+    y_seq_name_setback: usize,
+    seq_name_font_size: usize,
     count_per_seed: f64,
     scale: f64,
 }
 
 impl Plotter {
     pub fn new(count_per_seed: f64, scale: f64) -> Plotter {
-        Plotter {
+        let p = Plotter {
             margin: 20,
             spacer_thickness: 1,
-            x_label_area_height: 15,
-            x_tick_area_height: 30,
-            y_label_area_width: 20,
-            y_tick_area_width: 40,
+            x_label_area_height: 40,
+            y_label_area_width: 40,
             colorbar_area_height: 30,
-            label_font_size: 12,
             axes_thickness: 1,
             tick_len: 3,
-            tick_label_separation: 5,
+            tick_label_setback: 5,
+            tick_label_font_size: 12,
+            x_seq_name_setback: 25,
+            y_seq_name_setback: 35,
+            seq_name_font_size: 12,
             count_per_seed,
             scale,
-        }
+        };
+        assert!(p.tick_len < p.tick_label_setback);
+        assert!(p.tick_label_setback < p.x_seq_name_setback);
+        assert!(p.tick_label_setback < p.y_seq_name_setback);
+        assert!(p.axes_thickness + p.x_seq_name_setback < p.x_label_area_height);
+        assert!(p.axes_thickness + p.y_seq_name_setback < p.y_label_area_width);
+        p
     }
 
     fn determine_tick_pitch(&self, tile: &BlockTile) -> (u32, f64) {
-        let unit_pixels = 15.0 * self.label_font_size as f64;
+        let unit_pixels = 15.0 * self.tick_label_font_size as f64;
         let unit_bases = (unit_pixels * tile.base_per_pixel() as f64).log(10.0);
         let (f, c) = (unit_bases.fract(), unit_bases.floor());
         assert!(f <= 1.0 && c >= 1.0);
@@ -497,32 +516,42 @@ impl Plotter {
         brks: &Breakpoints,
         tick_pitch: (u32, f64),
     ) -> Result<()> {
-        let style = TextStyle::from(("sans-serif", self.label_font_size as u32).into_font()).color(&BLACK);
-        let (w0, _) = area.estimate_text_size("0", &style).unwrap();
+        let tick_label_style = TextStyle::from(("sans-serif", self.tick_label_font_size as u32).into_font()).color(&BLACK);
+        let seq_name_style = TextStyle::from(("sans-serif", self.seq_name_font_size as u32).into_font())
+            .color(&BLACK)
+            .pos(Pos::new(HPos::Center, VPos::Top));
+        let anchors = [
+            Pos::new(HPos::Left, VPos::Top),   // for left labels
+            Pos::new(HPos::Center, VPos::Top), // for middle labels
+            Pos::new(HPos::Right, VPos::Top),  // for right labels
+        ];
 
         let areas = area.split_by_breakpoints(brks.as_slice(), &[] as &[u32]);
         for (area, seq) in areas.iter().zip(seq.iter()) {
-            let areas = area.split_by_breakpoints(&[] as &[u32], [self.axes_thickness as u32]);
+            let areas = area.split_by_breakpoints(
+                &[] as &[u32],
+                [
+                    self.axes_thickness as u32,
+                    self.axes_thickness as u32 + self.tick_label_setback as u32,
+                    self.axes_thickness as u32 + self.x_seq_name_setback as u32,
+                ],
+            );
             areas[0].fill(&BLACK).unwrap();
 
             let ticks = build_tick_labels(seq, tick_pitch, (true, true));
             for tick in &ticks {
-                if !tick.is_end.0 {
+                if !tick.is_end.1 {
                     areas[1]
                         .draw(&Tick::new((tick.pos, 0), self.tick_len as u32, TickDirection::Down))
                         .unwrap();
                 }
-
-                let (w, _) = areas[1].estimate_text_size(&tick.text, &style).unwrap();
-                let pos = if tick.is_end.0 {
-                    (tick.pos as i32 + w0 as i32 / 2, self.tick_label_separation as i32)
-                } else if !tick.is_end.1 {
-                    (tick.pos as i32 - w as i32 / 2, self.tick_label_separation as i32)
-                } else {
-                    (tick.pos as i32 - w as i32 - w0 as i32 / 2, self.tick_label_separation as i32)
-                };
-                areas[1].draw_text(&tick.text, &style, pos).unwrap();
+                areas[2]
+                    .draw_text(&tick.text, &tick_label_style.pos(anchors[tick.index()]), (tick.pos as i32, 0))
+                    .unwrap();
             }
+
+            let (w, _) = areas[3].dim_in_pixel();
+            areas[3].draw_text(&seq.name, &seq_name_style, (w as i32 / 2, 0)).unwrap();
         }
         Ok(())
     }
@@ -534,46 +563,60 @@ impl Plotter {
         brks: &Breakpoints,
         tick_pitch: (u32, f64),
     ) -> Result<()> {
-        let style = TextStyle::from(("sans-serif", self.label_font_size as u32).into_font()).color(&BLACK);
+        let tick_label_style = TextStyle::from(("sans-serif", self.tick_label_font_size as u32).into_font()).color(&BLACK);
+        let seq_name_style = TextStyle::from(("sans-serif", self.seq_name_font_size as u32).into_font())
+            .color(&BLACK)
+            .transform(FontTransform::Rotate270)
+            .pos(Pos::new(HPos::Center, VPos::Bottom));
+        let anchors = [
+            Pos::new(HPos::Right, VPos::Bottom), // for bottom labels
+            Pos::new(HPos::Right, VPos::Center), // for middle labels
+            Pos::new(HPos::Right, VPos::Top),    // for top labels
+        ];
+
+        let p = |area: &DrawingArea<BitMapBackend<'_>, Shift>, pos: (u32, u32)| {
+            let (w, h) = area.dim_in_pixel();
+            (w - pos.0 - 1, h - pos.1 - 1)
+        };
 
         let (w, _) = area.dim_in_pixel();
         let areas = area.split_by_breakpoints(&[] as &[u32], brks.as_slice());
         for (area, seq) in areas.iter().rev().zip(seq.iter()) {
-            let areas = area.split_by_breakpoints([w - self.axes_thickness as u32], &[] as &[u32]);
-            areas[1].fill(&BLACK).unwrap();
+            let (_, h) = area.dim_in_pixel();
+            let areas = {
+                let mut areas = area.split_by_breakpoints(
+                    [
+                        w - self.axes_thickness as u32 - self.y_seq_name_setback as u32,
+                        w - self.axes_thickness as u32 - self.tick_label_setback as u32,
+                        w - self.axes_thickness as u32,
+                    ],
+                    &[] as &[u32],
+                );
+                areas.reverse();
+                areas
+            };
+            areas[0].fill(&BLACK).unwrap();
 
-            let dim = areas[0].dim_in_pixel();
             let ticks = build_tick_labels(seq, tick_pitch, (true, true));
             for tick in &ticks {
+                let pos = p(&areas[1], (0, tick.pos));
                 if !tick.is_end.0 {
-                    areas[0]
-                        .draw(&Tick::new(
-                            (dim.0 - 1, dim.1 - tick.pos - 1),
-                            self.tick_len as u32,
-                            TickDirection::Left,
-                        ))
-                        .unwrap();
+                    areas[1].draw(&Tick::new(pos, self.tick_len as u32, TickDirection::Left)).unwrap();
                 }
 
-                let (w, h) = areas[1].estimate_text_size(&tick.text, &style).unwrap();
-                let pos = if tick.is_end.0 {
-                    (
-                        dim.0 as i32 - w as i32 - self.tick_label_separation as i32 - 1,
-                        dim.1 as i32 - tick.pos as i32 - h as i32 - 1,
+                let pos = p(&areas[2], (0, tick.pos));
+                areas[2]
+                    .draw_text(
+                        &tick.text,
+                        &tick_label_style.pos(anchors[tick.index()]),
+                        (pos.0 as i32, pos.1 as i32),
                     )
-                } else if !tick.is_end.1 {
-                    (
-                        dim.0 as i32 - w as i32 - self.tick_label_separation as i32 - 1,
-                        dim.1 as i32 - tick.pos as i32 - h as i32 / 2 - 1,
-                    )
-                } else {
-                    (
-                        dim.0 as i32 - w as i32 - self.tick_label_separation as i32 - 1,
-                        dim.1 as i32 - tick.pos as i32 + h as i32 / 4 - 1,
-                    )
-                };
-                areas[0].draw_text(&tick.text, &style, pos).unwrap();
+                    .unwrap();
             }
+            let pos = p(&areas[3], (0, h / 2));
+            areas[3]
+                .draw_text(&seq.name, &seq_name_style, (pos.0 as i32, pos.1 as i32))
+                .unwrap();
         }
 
         Ok(())
@@ -623,12 +666,7 @@ impl Plotter {
             "margin".to_string(),
             Box::new(LayoutElem::Margined(
                 "label".to_string(),
-                Box::new(LayoutElem::Margined(
-                    "tick".to_string(),
-                    Box::new(LayoutElem::Rect("blocks".to_string(), brks.0.pixels(), brks.1.pixels())),
-                    (self.y_tick_area_width as u32, 0),
-                    (0, self.x_tick_area_height as u32),
-                )),
+                Box::new(LayoutElem::Rect("blocks".to_string(), brks.0.pixels(), brks.1.pixels())),
                 (self.y_label_area_width as u32, 0),
                 (self.colorbar_area_height as u32, self.x_label_area_height as u32),
             )),
@@ -637,20 +675,20 @@ impl Plotter {
         );
         let areas = StructuredDrawingArea::from_layout(&layout, name)?;
 
-        self.draw_tile(areas.get_area(".margin[center].label[center].tick[center]")?, tile, &brks)?;
+        self.draw_tile(areas.get_area(".margin[center].label[center]")?, tile, &brks)?;
         self.draw_ylabel(
-            areas.get_area(".margin[center].label[center].tick[left]")?,
+            areas.get_area(".margin[center].label[left]")?,
             tile.vertical_seqs(),
             &brks.1,
             tick_pitch,
         )?;
         self.draw_xlabel(
-            areas.get_area(".margin[center].label[center].tick[bottom]")?,
+            areas.get_area(".margin[center].label[bottom]")?,
             tile.horizontal_seqs(),
             &brks.0,
             tick_pitch,
         )?;
-        self.draw_origin(areas.get_area(".margin[center].label[center].tick[left-bottom]")?)?;
+        self.draw_origin(areas.get_area(".margin[center].label[left-bottom]")?)?;
         areas.present()?;
 
         Ok(())
