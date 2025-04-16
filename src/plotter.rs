@@ -385,7 +385,8 @@ struct Tick {
     label_pos: (i32, i32),
     label_anchor: Pos,
     label_font_size: u32,
-    label: Option<String>,
+    label: String,
+    show_label: bool,
 }
 
 impl TickPitch {
@@ -402,15 +403,12 @@ impl TickPitch {
             (5, 10u64.pow(c as u32 + 1) / 2)
         };
         let subunit = 10u32.pow(pitch_in_bases.ilog10() / 3 * 3);
-
-        let t = TickPitch {
+        TickPitch {
             label_period,
             pitch_in_bases: pitch_in_bases as u32,
             pixels_per_pitch: pitch_in_bases as f64 / base_per_pixel as f64,
             subunit,
-        };
-        eprintln!("tick pitch: {t:?}");
-        t
+        }
     }
 
     fn to_ticks<F>(&self, root: (i32, i32), range: &Range<usize>, config: &TickConfig, label_formatter: F) -> Vec<Tick>
@@ -420,12 +418,10 @@ impl TickPitch {
         let range = range.start as u32..range.end as u32;
         let base_to_pixel = self.pixels_per_pitch / self.pitch_in_bases as f64;
         let to_pixel = |i: u32, extra: i32| ((i - range.start) as f64 * base_to_pixel) as i32 + extra;
-        let to_label = |i: u32, show: bool| {
-            if show { Some(label_formatter(i, self.subunit)) } else { None }
-        };
+        let fmt = |i: u32| label_formatter(i, self.subunit);
 
         let mut labels = Vec::new();
-        labels.push(config.build_tick(root, to_pixel(range.start, -1), (true, false), true, to_label(range.start, true)));
+        labels.push(config.build_tick(root, to_pixel(range.start, -1), (true, false), true, fmt(range.start), true));
 
         let mut i = range.start;
         loop {
@@ -439,10 +435,10 @@ impl TickPitch {
             let too_close_to_end = i <= range.start + thresh || i + thresh >= range.end;
             let is_large = next_n % self.label_period == 0;
             let show_label = is_large && !too_close_to_end;
-            labels.push(config.build_tick(root, to_pixel(i, 0), (false, false), is_large, to_label(i, show_label)));
+            labels.push(config.build_tick(root, to_pixel(i, 0), (false, false), is_large, fmt(i), show_label));
         }
 
-        labels.push(config.build_tick(root, to_pixel(range.end, 1), (false, true), true, to_label(range.end, true)));
+        labels.push(config.build_tick(root, to_pixel(range.end, 1), (false, true), true, fmt(range.end), true));
         labels
     }
 }
@@ -457,7 +453,7 @@ struct TickConfig {
 }
 
 impl TickConfig {
-    fn build_tick(&self, root: (i32, i32), pos: i32, is_end: (bool, bool), is_large: bool, label: Option<String>) -> Tick {
+    fn build_tick(&self, root: (i32, i32), pos: i32, is_end: (bool, bool), is_large: bool, label: String, show_label: bool) -> Tick {
         let pos = match self.axis_direction {
             TickDirection::Up => (root.0, root.1 - pos),
             TickDirection::Down => (root.0, root.1 + pos),
@@ -478,7 +474,6 @@ impl TickConfig {
             (false, false) => 1,
             (true, false) => 2,
         };
-        eprintln!("tick: {root:?}, {pos:?}, {is_end:?}, {is_large}, {label:?}, {end_index:?}");
         let x_anchors = [HPos::Left, HPos::Center, HPos::Right];
         let y_anchors = [VPos::Bottom, VPos::Center, VPos::Top];
         let shift = (self.label_font_size as f64 / 8.0) as i32;
@@ -502,6 +497,7 @@ impl TickConfig {
             label_anchor,
             label_font_size: self.label_font_size,
             label,
+            show_label,
         }
     }
 }
@@ -533,12 +529,12 @@ where
         let start = (pos.0 + self.tick_start.0, pos.1 + self.tick_start.1);
         let end = (pos.0 + self.tick_end.0, pos.1 + self.tick_end.1);
         backend.draw_line(start, end, &style)?;
-        if let Some(label) = &self.label {
+        if self.show_label {
             let style = &TextStyle::from(("sans-serif", self.label_font_size as u32).into_font())
                 .color(&BLACK)
                 .pos(self.label_anchor);
             let pos = (pos.0 + self.label_pos.0, pos.1 + self.label_pos.1);
-            backend.draw_text(label, style, pos)?;
+            backend.draw_text(&self.label, style, pos)?;
         }
         Ok(())
     }
@@ -694,7 +690,7 @@ impl<'a> Plotter<'a> {
 
         // ticks
         let mut ticks = pitch.to_ticks(
-            (0, self.c.x_tick.len.0 as i32 + self.c.axes_thickness as i32),
+            (0, self.c.x_tick.len.0 as i32),
             &(0..(pitch.label_period * pitch.pitch_in_bases) as usize),
             &self.c.x_tick,
             |i, subunit| format!("{:.1}", i as f64 / subunit as f64),
@@ -702,14 +698,14 @@ impl<'a> Plotter<'a> {
 
         // slightly modify the first and last ticks
         let anchor = Pos::new(HPos::Center, VPos::Top);
-        let adj = self.c.x_tick.len.0 + self.c.axes_thickness;
+        let adj = self.c.x_tick.len.0 - self.c.axes_thickness + 1;
         if let Some(tick) = ticks.first_mut() {
             tick.label_anchor = anchor;
             tick.tick_start.1 -= adj as i32;
         }
         if let Some(tick) = ticks.last_mut() {
             tick.label_anchor = anchor;
-            tick.label = Some(format!("{} {}", tick.label.as_ref().unwrap(), subunit));
+            tick.label = format!("{} {}", &tick.label, subunit);
             tick.tick_start.1 -= adj as i32;
         }
         for tick in &ticks {
@@ -729,29 +725,51 @@ impl<'a> Plotter<'a> {
     }
 
     fn draw_color_scale(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>) -> Result<()> {
-        let max_seeds = 100;
-        let pitch = TickPitch::new(self.c.color_scale_length / 3, max_seeds / self.c.color_scale_length);
+        let max_seeds = 1000f64;
+        let pitch = TickPitch::new(self.c.color_scale_length / 3, 1);
+        eprintln!("pitch: {:?}", pitch);
+
+        let areas = area.split_by_breakpoints(
+            &[] as &[u32],
+            &[
+                self.c.x_tick.len.0,
+                self.c.x_tick.len.0 + self.c.axes_thickness,
+                self.c.x_tick.len.0 + self.c.axes_thickness + self.c.x_tick.len.0,
+            ],
+        );
 
         // draw color scale
-        let len = self.c.x_tick.len.0 as i32;
-        let max_seeds = max_seeds as f64;
         for i in 0..self.c.color_scale_length {
             let cnt = max_seeds.powf(i as f64 / self.c.color_scale_length as f64);
-            let cf = self.color_map.get_rgb_color(&[0, 1], cnt as u32);
-            let cr = self.color_map.get_rgb_color(&[0, 2], cnt as u32);
-            area.draw(&Rectangle::new([(i as i32 + 1, 0), (i as i32 + 2, len)], cf.filled()))?;
-            area.draw(&Rectangle::new([(i as i32 + 1, len), (i as i32 + 2, 2 * len)], cr.filled()))?;
+            let cf = self.color_map.get_rgb_color(&[0, 1], cnt as u32).filled();
+            let cr = self.color_map.get_rgb_color(&[0, 2], cnt as u32).filled();
+            areas[0].draw(&Rectangle::new([(i as i32 + 1, 0), (i as i32 + 2, self.c.x_tick.len.0 as i32)], cf))?;
+            areas[2].draw(&Rectangle::new([(i as i32 + 1, 0), (i as i32 + 2, self.c.x_tick.len.0 as i32)], cr))?;
         }
 
-        // downward ticks
-        let ticks = pitch.to_ticks(
-            (0, 2 * len),
+        // ticks
+        let mut ticks = pitch.to_ticks(
+            (0, 0),
             &(0..(pitch.label_period * pitch.pitch_in_bases) as usize),
             &self.c.x_tick,
-            |i, subunit| format!("{:.1}", i as f64 / subunit as f64),
+            |i, _| format!("{:.1}", max_seeds.powf(i as f64 / self.c.color_scale_length as f64)),
         );
-        for tick in &ticks {
-            area.draw(tick)?;
+        let anchor = Pos::new(HPos::Center, VPos::Top);
+        let adj = self.c.x_tick.len.0 - self.c.axes_thickness + 1;
+        if let Some(tick) = ticks.first_mut() {
+            tick.label_anchor = anchor;
+            tick.tick_start.1 -= adj as i32;
+        }
+        if let Some(tick) = ticks.last_mut() {
+            tick.label_anchor = anchor;
+            tick.label = format!("{}/px^2", &tick.label);
+            tick.tick_start.1 -= adj as i32;
+        }
+        for (i, tick) in ticks.iter().enumerate() {
+            areas[1].draw(&Tick {
+                show_label: i % 2 == 0,
+                ..tick.clone()
+            })?;
         }
 
         // draw axis
