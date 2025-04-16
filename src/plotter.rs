@@ -254,24 +254,26 @@ impl<'a> StructuredDrawingArea<'a> {
     }
 }
 
-// wrapper of Block to make drawable on Plotter's DrawingArea
 #[derive(Debug)]
-struct DrawableBlock<'a> {
-    block: &'a Block,
+struct ColorMap {
+    palette: Vec<(u8, u8, u8)>,
     count_per_seed: f64,
     scale: f64,
 }
 
-impl<'a> DrawableBlock<'a> {
-    fn new(block: &'a Block, count_per_seed: f64, scale: f64) -> DrawableBlock<'a> {
-        DrawableBlock {
-            block,
+impl ColorMap {
+    fn new(palette: &[(u8, u8, u8)], count_per_seed: f64, scale: f64) -> ColorMap {
+        ColorMap {
+            palette: palette.to_vec(),
             count_per_seed,
             scale,
         }
     }
 
-    fn cnt_to_color(&self, min: (u8, u8, u8), max: (u8, u8, u8), val: u32) -> (u8, u8, u8) {
+    fn get_color(&self, palette_index: &[usize], val: u32) -> (u8, u8, u8) {
+        let min = self.palette[palette_index[0]];
+        let max = self.palette[palette_index[1]];
+
         let blend = |min: (u8, u8, u8), max: (u8, u8, u8), val: u32| -> (u8, u8, u8) {
             let r = (min.0 as u32 * (256 - val) + max.0 as u32 * val) / 256;
             let g = (min.1 as u32 * (256 - val) + max.1 as u32 * val) / 256;
@@ -284,6 +286,19 @@ impl<'a> DrawableBlock<'a> {
         let occ = self.scale * occ.log2();
         let occ = (occ as i32).clamp(0, 256) as u32;
         blend(min, max, occ)
+    }
+}
+
+// wrapper of Block to make drawable on Plotter's DrawingArea
+#[derive(Debug)]
+struct DrawableBlock<'a> {
+    block: &'a Block,
+    color_map: &'a ColorMap,
+}
+
+impl<'a> DrawableBlock<'a> {
+    fn new(block: &'a Block, color_map: &'a ColorMap) -> DrawableBlock<'a> {
+        DrawableBlock { block, color_map }
     }
 }
 
@@ -308,9 +323,7 @@ where
         let pos = pos.next().unwrap();
         for (y, line) in self.block.cnt.chunks(self.block.width).rev().enumerate() {
             for (x, cnt) in line.iter().enumerate() {
-                let c0 = self.cnt_to_color((255, 255, 255), (255, 0, 64), cnt[0]);
-                let c1 = self.cnt_to_color((255, 255, 255), (0, 64, 255), cnt[1]);
-                let c = std::cmp::min(c0, c1);
+                let c = std::cmp::min(self.color_map.get_color(&[0, 1], cnt[0]), self.color_map.get_color(&[0, 2], cnt[1]));
                 backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), RGBColor(c.0, c.1, c.2).color())?;
             }
         }
@@ -430,7 +443,7 @@ fn build_tick_labels(seq: &Seq, tick_pitch: (u32, f64), include_ends: (bool, boo
     labels
 }
 
-pub struct Plotter {
+pub struct PlotterConfig {
     margin: usize,
     spacer_thickness: usize,
     x_label_area_height: usize,
@@ -447,9 +460,19 @@ pub struct Plotter {
     scale: f64,
 }
 
-impl Plotter {
-    pub fn new(count_per_seed: f64, scale: f64) -> Plotter {
-        let p = Plotter {
+pub struct Plotter<'a> {
+    color_map: ColorMap,
+    c: PlotterConfig,
+    tick_label_style: TextStyle<'a>,
+    x_seq_name_style: TextStyle<'a>,
+    x_seq_name_anchors: Vec<Pos>,
+    y_seq_name_style: TextStyle<'a>,
+    y_seq_name_anchors: Vec<Pos>,
+}
+
+impl<'a> Plotter<'a> {
+    pub fn new(count_per_seed: f64, scale: f64) -> Plotter<'a> {
+        let c = PlotterConfig {
             margin: 20,
             spacer_thickness: 1,
             x_label_area_height: 40,
@@ -465,16 +488,44 @@ impl Plotter {
             count_per_seed,
             scale,
         };
-        assert!(p.tick_len < p.tick_label_setback);
-        assert!(p.tick_label_setback < p.x_seq_name_setback);
-        assert!(p.tick_label_setback < p.y_seq_name_setback);
-        assert!(p.axes_thickness + p.x_seq_name_setback < p.x_label_area_height);
-        assert!(p.axes_thickness + p.y_seq_name_setback < p.y_label_area_width);
-        p
+        assert!(c.tick_len < c.tick_label_setback);
+        assert!(c.tick_label_setback < c.x_seq_name_setback);
+        assert!(c.tick_label_setback < c.y_seq_name_setback);
+        assert!(c.axes_thickness + c.x_seq_name_setback < c.x_label_area_height);
+        assert!(c.axes_thickness + c.y_seq_name_setback < c.y_label_area_width);
+
+        let color_map = ColorMap::new(&[(255, 255, 255), (255, 0, 64), (0, 64, 255)], c.count_per_seed, c.scale);
+        let tick_label_style = TextStyle::from(("sans-serif", c.tick_label_font_size as u32).into_font()).color(&BLACK);
+        let seq_name_style = TextStyle::from(("sans-serif", c.seq_name_font_size as u32).into_font()).color(&BLACK);
+        let x_seq_name_style = seq_name_style.pos(Pos::new(HPos::Center, VPos::Top));
+        let y_seq_name_style = seq_name_style
+            .transform(FontTransform::Rotate270)
+            .pos(Pos::new(HPos::Center, VPos::Bottom));
+
+        let x_seq_name_anchors = [
+            Pos::new(HPos::Left, VPos::Top),   // for left labels
+            Pos::new(HPos::Center, VPos::Top), // for middle labels
+            Pos::new(HPos::Right, VPos::Top),  // for right labels
+        ];
+        let y_seq_name_anchors = [
+            Pos::new(HPos::Right, VPos::Bottom), // for bottom labels
+            Pos::new(HPos::Right, VPos::Center), // for middle labels
+            Pos::new(HPos::Right, VPos::Top),    // for top labels
+        ];
+
+        Plotter {
+            color_map,
+            c,
+            tick_label_style,
+            x_seq_name_style,
+            x_seq_name_anchors: x_seq_name_anchors.to_vec(),
+            y_seq_name_style,
+            y_seq_name_anchors: y_seq_name_anchors.to_vec(),
+        }
     }
 
     fn determine_tick_pitch(&self, tile: &BlockTile) -> (u32, f64) {
-        let unit_pixels = 15.0 * self.tick_label_font_size as f64;
+        let unit_pixels = 15.0 * self.c.tick_label_font_size as f64;
         let unit_bases = (unit_pixels * tile.base_per_pixel() as f64).log(10.0);
         let (f, c) = (unit_bases.fract(), unit_bases.floor());
         assert!(f <= 1.0 && c >= 1.0);
@@ -490,12 +541,12 @@ impl Plotter {
         (pitch_in_bases as u32, pitch_in_bases as f64 / tile.base_per_pixel() as f64)
     }
 
-    fn draw_block(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, block: &Block) -> Result<()> {
-        let areas = area.split_by_breakpoints([block.width as u32], [self.spacer_thickness as u32]);
+    fn draw_block(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, block: &Block, color_map: &ColorMap) -> Result<()> {
+        let areas = area.split_by_breakpoints([block.width as u32], [self.c.spacer_thickness as u32]);
         let spacer_color = RGBColor(192, 208, 192);
         areas[0].fill(&spacer_color).unwrap();
         areas[1].fill(&spacer_color).unwrap();
-        areas[2].draw(&DrawableBlock::new(block, self.count_per_seed, self.scale)).unwrap();
+        areas[2].draw(&DrawableBlock::new(block, color_map)).unwrap();
         areas[3].fill(&spacer_color).unwrap();
         Ok(())
     }
@@ -505,7 +556,7 @@ impl Plotter {
         for (i, area_chunk) in areas.chunks(brks.0.segments()).rev().enumerate() {
             let blocks = tile.get_row(i);
             for (area, block) in area_chunk.iter().zip(blocks.iter()) {
-                self.draw_block(area, block)?;
+                self.draw_block(area, block, &self.color_map)?;
             }
         }
         Ok(())
@@ -518,17 +569,7 @@ impl Plotter {
         brks: &Breakpoints,
         tick_pitch: (u32, f64),
     ) -> Result<()> {
-        let tick_label_style = TextStyle::from(("sans-serif", self.tick_label_font_size as u32).into_font()).color(&BLACK);
-        let seq_name_style = TextStyle::from(("sans-serif", self.seq_name_font_size as u32).into_font())
-            .color(&BLACK)
-            .pos(Pos::new(HPos::Center, VPos::Top));
-        let anchors = [
-            Pos::new(HPos::Left, VPos::Top),   // for left labels
-            Pos::new(HPos::Center, VPos::Top), // for middle labels
-            Pos::new(HPos::Right, VPos::Top),  // for right labels
-        ];
-
-        let (w0, _) = area.estimate_text_size("0", &tick_label_style).unwrap();
+        let (w0, _) = area.estimate_text_size("0", &self.tick_label_style).unwrap();
         let w0 = w0 as i32 / 2;
         let calc_label_pos = |pos: (u32, u32), index: usize| match index {
             0 => (pos.0 as i32 + w0, pos.1 as i32),
@@ -541,9 +582,9 @@ impl Plotter {
             let areas = area.split_by_breakpoints(
                 &[] as &[u32],
                 [
-                    self.axes_thickness as u32,
-                    self.axes_thickness as u32 + self.tick_label_setback as u32,
-                    self.axes_thickness as u32 + self.x_seq_name_setback as u32,
+                    self.c.axes_thickness as u32,
+                    self.c.axes_thickness as u32 + self.c.tick_label_setback as u32,
+                    self.c.axes_thickness as u32 + self.c.x_seq_name_setback as u32,
                 ],
             );
             areas[0].fill(&BLACK).unwrap();
@@ -552,14 +593,14 @@ impl Plotter {
             for tick in &ticks {
                 if !tick.is_end.0 {
                     areas[1]
-                        .draw(&Tick::new((tick.pos, 0), self.tick_len as u32, TickDirection::Down))
+                        .draw(&Tick::new((tick.pos, 0), self.c.tick_len as u32, TickDirection::Down))
                         .unwrap();
                 }
                 if !tick.close_to_next {
                     areas[2]
                         .draw_text(
                             &tick.text,
-                            &tick_label_style.pos(anchors[tick.index()]),
+                            &self.tick_label_style.pos(self.x_seq_name_anchors[tick.index()]),
                             calc_label_pos((tick.pos, 0), tick.index()),
                         )
                         .unwrap();
@@ -567,7 +608,7 @@ impl Plotter {
             }
 
             let (w, _) = areas[3].dim_in_pixel();
-            areas[3].draw_text(&seq.name, &seq_name_style, (w as i32 / 2, 0)).unwrap();
+            areas[3].draw_text(&seq.name, &self.x_seq_name_style, (w as i32 / 2, 0)).unwrap();
         }
         Ok(())
     }
@@ -579,17 +620,6 @@ impl Plotter {
         brks: &Breakpoints,
         tick_pitch: (u32, f64),
     ) -> Result<()> {
-        let tick_label_style = TextStyle::from(("sans-serif", self.tick_label_font_size as u32).into_font()).color(&BLACK);
-        let seq_name_style = TextStyle::from(("sans-serif", self.seq_name_font_size as u32).into_font())
-            .color(&BLACK)
-            .transform(FontTransform::Rotate270)
-            .pos(Pos::new(HPos::Center, VPos::Bottom));
-        let anchors = [
-            Pos::new(HPos::Right, VPos::Bottom), // for bottom labels
-            Pos::new(HPos::Right, VPos::Center), // for middle labels
-            Pos::new(HPos::Right, VPos::Top),    // for top labels
-        ];
-
         let calc_pos = |area: &DrawingArea<BitMapBackend<'_>, Shift>, pos: (u32, u32)| {
             let (w, h) = area.dim_in_pixel();
             (w - pos.0 - 1, h - pos.1 - 1)
@@ -602,9 +632,9 @@ impl Plotter {
             let areas = {
                 let mut areas = area.split_by_breakpoints(
                     [
-                        w - self.axes_thickness as u32 - self.y_seq_name_setback as u32,
-                        w - self.axes_thickness as u32 - self.tick_label_setback as u32,
-                        w - self.axes_thickness as u32,
+                        w - self.c.axes_thickness as u32 - self.c.y_seq_name_setback as u32,
+                        w - self.c.axes_thickness as u32 - self.c.tick_label_setback as u32,
+                        w - self.c.axes_thickness as u32,
                     ],
                     &[] as &[u32],
                 );
@@ -617,14 +647,14 @@ impl Plotter {
             for tick in &ticks {
                 let pos = calc_pos(&areas[1], (0, tick.pos));
                 if !tick.is_end.0 {
-                    areas[1].draw(&Tick::new(pos, self.tick_len as u32, TickDirection::Left)).unwrap();
+                    areas[1].draw(&Tick::new(pos, self.c.tick_len as u32, TickDirection::Left)).unwrap();
                 }
                 if !tick.close_to_next {
                     let pos = calc_pos(&areas[2], (0, tick.pos));
                     areas[2]
                         .draw_text(
                             &tick.text,
-                            &tick_label_style.pos(anchors[tick.index()]),
+                            &self.tick_label_style.pos(self.y_seq_name_anchors[tick.index()]),
                             (pos.0 as i32, pos.1 as i32),
                         )
                         .unwrap();
@@ -632,7 +662,7 @@ impl Plotter {
             }
             let pos = calc_pos(&areas[3], (0, h / 2));
             areas[3]
-                .draw_text(&seq.name, &seq_name_style, (pos.0 as i32, pos.1 as i32))
+                .draw_text(&seq.name, &self.y_seq_name_style, (pos.0 as i32, pos.1 as i32))
                 .unwrap();
         }
 
@@ -641,24 +671,43 @@ impl Plotter {
 
     fn draw_origin(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>) -> Result<()> {
         let (w, _) = area.dim_in_pixel();
-        let t = self.axes_thickness as u32;
+        let t = self.c.axes_thickness as u32;
         let areas = area.split_by_breakpoints([w - t], [t]);
 
         areas[1].fill(&BLACK).unwrap();
         areas[0]
             .draw(&Tick::new(
                 (areas[0].dim_in_pixel().0 - 1, 0),
-                self.tick_len as u32,
+                self.c.tick_len as u32,
                 TickDirection::Left,
             ))
             .unwrap();
         areas[3]
             .draw(&Tick::new(
                 (areas[3].dim_in_pixel().0 - 1, 0),
-                self.tick_len as u32,
+                self.c.tick_len as u32,
                 TickDirection::Down,
             ))
             .unwrap();
+        Ok(())
+    }
+
+    fn draw_color_scale(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>) -> Result<()> {
+        // let areas = area.split_by_breakpoints(&[] as &[u32], [self.colorbar_area_height as u32]);
+        // let (w, h) = areas[0].dim_in_pixel();
+        // let color_scale_style = ShapeStyle {
+        //     color: RGBColor(255, 0, 0),
+        //     filled: true,
+        //     stroke_width: 1,
+        // };
+        // for i in 0..w {
+        //     let c = RGBColor(
+        //         (i * 255 / w) as u8,
+        //         (i * 255 / w) as u8,
+        //         (i * 255 / w) as u8,
+        //     );
+        //     areas[0].draw(&Rectangle::new([(i, 0), (i + 1, h)], color_scale_style.color(c)))?;
+        // }
         Ok(())
     }
 
@@ -669,12 +718,12 @@ impl Plotter {
         let pixels = (
             tile.horizontal_pixels()
                 .iter()
-                .map(|&x| x + self.spacer_thickness as u32)
+                .map(|&x| x + self.c.spacer_thickness as u32)
                 .collect::<Vec<_>>(),
             tile.vertical_pixels()
                 .iter()
                 .rev()
-                .map(|&x| x + self.spacer_thickness as u32)
+                .map(|&x| x + self.c.spacer_thickness as u32)
                 .collect::<Vec<_>>(),
         );
         let brks = (Breakpoints::from_pixels(&pixels.0), Breakpoints::from_pixels(&pixels.1));
@@ -684,11 +733,11 @@ impl Plotter {
             Box::new(LayoutElem::Margined(
                 "label".to_string(),
                 Box::new(LayoutElem::Rect("blocks".to_string(), brks.0.pixels(), brks.1.pixels())),
-                (self.y_label_area_width as u32, 0),
-                (self.colorbar_area_height as u32, self.x_label_area_height as u32),
+                (self.c.y_label_area_width as u32, 0),
+                (self.c.colorbar_area_height as u32, self.c.x_label_area_height as u32),
             )),
-            (self.margin as u32, self.margin as u32),
-            (self.margin as u32, self.margin as u32),
+            (self.c.margin as u32, self.c.margin as u32),
+            (self.c.margin as u32, self.c.margin as u32),
         );
         let areas = StructuredDrawingArea::from_layout(&layout, name)?;
 

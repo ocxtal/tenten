@@ -199,16 +199,16 @@ impl Read for SeedGeneratorCommand {
     }
 }
 
-struct Context {
+struct Context<'a> {
     basename: String,
     rseq: Vec<Seq>,
     qseq: Vec<Seq>,
     bin: BlockBin,
-    plotter: Plotter,
+    plotter: Plotter<'a>,
     args: Args,
 }
 
-impl Context {
+impl<'a> Context<'a> {
     fn new(args: &Args) -> Self {
         let (mut rseq, mut qseq) = if let Some(query) = &args.query {
             let rseq = load_range(&args.reference, &RangeFormat::Fasta).unwrap();
