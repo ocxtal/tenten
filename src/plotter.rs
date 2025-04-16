@@ -530,12 +530,10 @@ impl Plotter {
 
         let (w0, _) = area.estimate_text_size("0", &tick_label_style).unwrap();
         let w0 = w0 as i32 / 2;
-        let calc_label_pos = |pos: (u32, u32), index: usize| {
-            match index {
-                0 => (pos.0 as i32 + w0, pos.1 as i32),
-                1 => (pos.0 as i32, pos.1 as i32),
-                _ => (pos.0 as i32 - w0, pos.1 as i32),
-            }
+        let calc_label_pos = |pos: (u32, u32), index: usize| match index {
+            0 => (pos.0 as i32 + w0, pos.1 as i32),
+            1 => (pos.0 as i32, pos.1 as i32),
+            _ => (pos.0 as i32 - w0, pos.1 as i32),
         };
 
         let areas = area.split_by_breakpoints(brks.as_slice(), &[] as &[u32]);
@@ -559,7 +557,11 @@ impl Plotter {
                 }
                 if !tick.close_to_next {
                     areas[2]
-                        .draw_text(&tick.text, &tick_label_style.pos(anchors[tick.index()]), calc_label_pos((tick.pos, 0), tick.index()))
+                        .draw_text(
+                            &tick.text,
+                            &tick_label_style.pos(anchors[tick.index()]),
+                            calc_label_pos((tick.pos, 0), tick.index()),
+                        )
                         .unwrap();
                 }
             }
