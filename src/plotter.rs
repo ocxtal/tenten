@@ -377,9 +377,10 @@ where
 }
 
 struct TickLabel {
-    is_end: (bool, bool),
     pos: u32,
     text: String,
+    is_end: (bool, bool),
+    close_to_next: bool,
 }
 
 impl TickLabel {
@@ -402,28 +403,29 @@ fn build_tick_labels(seq: &Seq, tick_pitch: (u32, f64), include_ends: (bool, boo
     let subunit = determine_subunit(tick_pitch);
 
     let mut labels = Vec::new();
-    let mut push = |seq_pos: usize, extra: usize, is_end: (bool, bool)| {
+    let mut push = |seq_pos: usize, extra: usize, is_end: (bool, bool), close_to_next: bool| {
         let tick_pos = ((seq_pos - seq.range.start) as f64 * pos_to_pixel) as u32;
         labels.push(TickLabel {
-            is_end,
             pos: tick_pos + extra as u32,
             text: format!("{:.1}", seq_pos as f64 / subunit as f64),
+            is_end,
+            close_to_next,
         });
     };
 
     let mut seq_pos = seq.range.start;
     if include_ends.0 {
-        push(seq_pos, 0, (true, false));
+        push(seq_pos, 0, (true, false), false);
     }
     loop {
         seq_pos = (seq_pos + 1).div_ceil(tick_pitch_in_pixel) * tick_pitch_in_pixel;
-        if seq_pos + tick_pitch_in_pixel / 2 >= seq.range.end {
+        if seq_pos >= seq.range.end {
             break;
         }
-        push(seq_pos, 0, (false, false));
+        push(seq_pos, 0, (false, false), seq_pos + tick_pitch_in_pixel / 2 >= seq.range.end);
     }
     if include_ends.1 {
-        push(seq.range.end, 1, (false, true));
+        push(seq.range.end, 1, (false, true), false);
     }
     labels
 }
@@ -526,6 +528,16 @@ impl Plotter {
             Pos::new(HPos::Right, VPos::Top),  // for right labels
         ];
 
+        let (w0, _) = area.estimate_text_size("0", &tick_label_style).unwrap();
+        let w0 = w0 as i32 / 2;
+        let calc_label_pos = |pos: (u32, u32), index: usize| {
+            match index {
+                0 => (pos.0 as i32 + w0, pos.1 as i32),
+                1 => (pos.0 as i32, pos.1 as i32),
+                _ => (pos.0 as i32 - w0, pos.1 as i32),
+            }
+        };
+
         let areas = area.split_by_breakpoints(brks.as_slice(), &[] as &[u32]);
         for (area, seq) in areas.iter().zip(seq.iter()) {
             let areas = area.split_by_breakpoints(
@@ -540,14 +552,16 @@ impl Plotter {
 
             let ticks = build_tick_labels(seq, tick_pitch, (true, true));
             for tick in &ticks {
-                if !tick.is_end.1 {
+                if !tick.is_end.0 {
                     areas[1]
                         .draw(&Tick::new((tick.pos, 0), self.tick_len as u32, TickDirection::Down))
                         .unwrap();
                 }
-                areas[2]
-                    .draw_text(&tick.text, &tick_label_style.pos(anchors[tick.index()]), (tick.pos as i32, 0))
-                    .unwrap();
+                if !tick.close_to_next {
+                    areas[2]
+                        .draw_text(&tick.text, &tick_label_style.pos(anchors[tick.index()]), calc_label_pos((tick.pos, 0), tick.index()))
+                        .unwrap();
+                }
             }
 
             let (w, _) = areas[3].dim_in_pixel();
@@ -574,7 +588,7 @@ impl Plotter {
             Pos::new(HPos::Right, VPos::Top),    // for top labels
         ];
 
-        let p = |area: &DrawingArea<BitMapBackend<'_>, Shift>, pos: (u32, u32)| {
+        let calc_pos = |area: &DrawingArea<BitMapBackend<'_>, Shift>, pos: (u32, u32)| {
             let (w, h) = area.dim_in_pixel();
             (w - pos.0 - 1, h - pos.1 - 1)
         };
@@ -599,21 +613,22 @@ impl Plotter {
 
             let ticks = build_tick_labels(seq, tick_pitch, (true, true));
             for tick in &ticks {
-                let pos = p(&areas[1], (0, tick.pos));
+                let pos = calc_pos(&areas[1], (0, tick.pos));
                 if !tick.is_end.0 {
                     areas[1].draw(&Tick::new(pos, self.tick_len as u32, TickDirection::Left)).unwrap();
                 }
-
-                let pos = p(&areas[2], (0, tick.pos));
-                areas[2]
-                    .draw_text(
-                        &tick.text,
-                        &tick_label_style.pos(anchors[tick.index()]),
-                        (pos.0 as i32, pos.1 as i32),
-                    )
-                    .unwrap();
+                if !tick.close_to_next {
+                    let pos = calc_pos(&areas[2], (0, tick.pos));
+                    areas[2]
+                        .draw_text(
+                            &tick.text,
+                            &tick_label_style.pos(anchors[tick.index()]),
+                            (pos.0 as i32, pos.1 as i32),
+                        )
+                        .unwrap();
+                }
             }
-            let pos = p(&areas[3], (0, h / 2));
+            let pos = calc_pos(&areas[3], (0, h / 2));
             areas[3]
                 .draw_text(&seq.name, &seq_name_style, (pos.0 as i32, pos.1 as i32))
                 .unwrap();
