@@ -11,6 +11,7 @@ use plotters::prelude::*;
 use plotters::style::text_anchor::{HPos, Pos, VPos};
 use plotters_backend::{BackendStyle, DrawingErrorKind};
 use std::collections::HashMap;
+use std::ops::Range;
 
 #[derive(Debug)]
 struct Breakpoints {
@@ -312,6 +313,11 @@ impl ColorMap {
         let occ = (occ as i32).clamp(0, 256) as u32;
         blend(min, max, occ)
     }
+
+    fn get_rgb_color(&self, palette_index: &[usize], val: u32) -> RGBColor {
+        let (r, g, b) = self.get_color(palette_index, val);
+        RGBColor(r, g, b)
+    }
 }
 
 // wrapper of Block to make drawable on Plotter's DrawingArea
@@ -356,14 +362,7 @@ where
     }
 }
 
-#[derive(Debug)]
-struct Tick {
-    pos: (i32, i32),
-    len: i32,
-    direction: TickDirection,
-}
-
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 enum TickDirection {
     Up,
     Down,
@@ -371,12 +370,139 @@ enum TickDirection {
     Right,
 }
 
-impl Tick {
-    fn new(pos: (u32, u32), len: u32, direction: TickDirection) -> Tick {
+#[derive(Copy, Clone, Debug)]
+struct TickPitch {
+    label_period: u32,
+    pitch_in_bases: u32,
+    pixels_per_pitch: f64,
+    subunit: u32,
+}
+
+#[derive(Clone)]
+struct Tick {
+    tick_start: (i32, i32),
+    tick_end: (i32, i32),
+    label_pos: (i32, i32),
+    label_anchor: Pos,
+    label_font_size: u32,
+    label: Option<String>,
+}
+
+impl TickPitch {
+    fn new(target_pixels: u32, base_per_pixel: u32) -> TickPitch {
+        let unit_bases = (target_pixels as f64 * base_per_pixel as f64).log(10.0);
+        let (f, c) = (unit_bases.fract(), unit_bases.floor());
+        assert!(f <= 1.0 && c >= 1.0);
+
+        let (label_period, pitch_in_bases) = if f < 2.5f64.log(10.0) {
+            (5, 10u64.pow(c as u32))
+        } else if f < 5.0f64.log(10.0) {
+            (4, 10u64.pow(c as u32 + 1) / 4)
+        } else {
+            (5, 10u64.pow(c as u32 + 1) / 2)
+        };
+        let subunit = 10u32.pow(pitch_in_bases.ilog10() / 3 * 3);
+
+        let t = TickPitch {
+            label_period,
+            pitch_in_bases: pitch_in_bases as u32,
+            pixels_per_pitch: pitch_in_bases as f64 / base_per_pixel as f64,
+            subunit,
+        };
+        eprintln!("tick pitch: {t:?}");
+        t
+    }
+
+    fn to_ticks<F>(&self, root: (i32, i32), range: &Range<usize>, config: &TickConfig, label_formatter: F) -> Vec<Tick>
+    where
+        F: Fn(u32, u32) -> String,
+    {
+        let range = range.start as u32..range.end as u32;
+        let base_to_pixel = self.pixels_per_pitch / self.pitch_in_bases as f64;
+        let to_pixel = |i: u32, extra: i32| ((i - range.start) as f64 * base_to_pixel) as i32 + extra;
+        let to_label = |i: u32, show: bool| {
+            if show { Some(label_formatter(i, self.subunit)) } else { None }
+        };
+
+        let mut labels = Vec::new();
+        labels.push(config.build_tick(root, to_pixel(range.start, -1), (true, false), true, to_label(range.start, true)));
+
+        let mut i = range.start;
+        loop {
+            let next_n = (i + 1).div_ceil(self.pitch_in_bases);
+            i = next_n * self.pitch_in_bases;
+            if i >= range.end {
+                break;
+            }
+
+            let thresh = self.pitch_in_bases * 2;
+            let too_close_to_end = i <= range.start + thresh || i + thresh >= range.end;
+            let is_large = next_n % self.label_period == 0;
+            let show_label = is_large && !too_close_to_end;
+            // let show_label = true;
+            labels.push(config.build_tick(root, to_pixel(i, 0), (false, false), is_large, to_label(i, show_label)));
+        }
+
+        labels.push(config.build_tick(root, to_pixel(range.end, 1), (false, true), true, to_label(range.end, true)));
+        labels
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+struct TickConfig {
+    len: (u32, u32),
+    label_setback: u32,
+    label_font_size: u32,
+    tick_direction: TickDirection,
+    axis_direction: TickDirection,
+}
+
+impl TickConfig {
+    fn build_tick(&self, root: (i32, i32), pos: i32, is_end: (bool, bool), is_large: bool, label: Option<String>) -> Tick {
+        let pos = match self.axis_direction {
+            TickDirection::Up => (root.0, root.1 - pos),
+            TickDirection::Down => (root.0, root.1 + pos),
+            TickDirection::Left => (root.0 - pos, root.1),
+            TickDirection::Right => (root.0 + pos, root.1),
+        };
+        let len = if is_large { self.len.0 } else { self.len.1 } as i32;
+        let (tick_start, tick_end) = match self.tick_direction {
+            TickDirection::Up => ((pos.0, pos.1 - len), (pos.0, pos.1)),
+            TickDirection::Down => ((pos.0, pos.1), (pos.0, pos.1 + len)),
+            TickDirection::Left => ((pos.0 - len, pos.1), (pos.0, pos.1)),
+            TickDirection::Right => ((pos.0, pos.1), (pos.0 + len, pos.1)),
+        };
+
+        let setback = self.label_setback as i32;
+        let end_index = match (is_end.1, is_end.0) {
+            (false, true) | (true, true) => 0,
+            (false, false) => 1,
+            (true, false) => 2,
+        };
+        eprintln!("tick: {root:?}, {pos:?}, {is_end:?}, {is_large}, {label:?}, {end_index:?}");
+        let x_anchors = [HPos::Left, HPos::Center, HPos::Right];
+        let y_anchors = [VPos::Bottom, VPos::Center, VPos::Top];
+        let shift = (self.label_font_size as f64 / 8.0) as i32;
+        let shifts = [shift, 0, -shift];
+        let (label_pos, label_anchor) = match self.tick_direction {
+            TickDirection::Up => (
+                (pos.0 + shifts[end_index], pos.1 - setback),
+                Pos::new(x_anchors[end_index], VPos::Bottom),
+            ),
+            TickDirection::Down => (
+                (pos.0 + shifts[end_index], pos.1 + setback),
+                Pos::new(x_anchors[end_index], VPos::Top),
+            ),
+            TickDirection::Left => ((pos.0 - setback, pos.1), Pos::new(HPos::Right, y_anchors[end_index])),
+            TickDirection::Right => ((pos.0 + setback, pos.1), Pos::new(HPos::Left, y_anchors[end_index])),
+        };
         Tick {
-            pos: (pos.0 as i32, pos.1 as i32),
-            len: len as i32,
-            direction,
+            tick_start,
+            tick_end,
+            label_pos,
+            label_anchor,
+            label_font_size: self.label_font_size,
+            label,
         }
     }
 }
@@ -400,131 +526,44 @@ where
     {
         let mut pos = pos;
         let pos = pos.next().unwrap();
-        let pos = (self.pos.0 + pos.0, self.pos.1 + pos.1);
-
         let style = ShapeStyle {
             color: BLACK.into(),
             filled: false,
             stroke_width: 1,
         };
-        match self.direction {
-            TickDirection::Up => backend.draw_line((pos.0, pos.1 - self.len), (pos.0, pos.1), &style),
-            TickDirection::Down => backend.draw_line((pos.0, pos.1), (pos.0, pos.1 + self.len), &style),
-            TickDirection::Left => backend.draw_line((pos.0 - self.len, pos.1), (pos.0, pos.1), &style),
-            TickDirection::Right => backend.draw_line((pos.0, pos.1), (pos.0 + self.len, pos.1), &style),
+        let start = (pos.0 + self.tick_start.0, pos.1 + self.tick_start.1);
+        let end = (pos.0 + self.tick_end.0, pos.1 + self.tick_end.1);
+        backend.draw_line(start, end, &style)?;
+        if let Some(label) = &self.label {
+            let style = &TextStyle::from(("sans-serif", self.label_font_size as u32).into_font())
+                .color(&BLACK)
+                .pos(self.label_anchor);
+            let pos = (pos.0 + self.label_pos.0, pos.1 + self.label_pos.1);
+            backend.draw_text(label, style, pos)?;
         }
+        Ok(())
     }
-}
-
-#[derive(Debug)]
-struct TickPitch {
-    pitch_in_bases: u32,
-    pixels_per_pitch: f64,
-}
-
-fn determine_tick_pitch(target_pixels: usize, base_per_pixel: usize) -> TickPitch {
-    let unit_bases = (target_pixels as f64 * base_per_pixel as f64).log(10.0);
-    let (f, c) = (unit_bases.fract(), unit_bases.floor());
-    assert!(f <= 1.0 && c >= 1.0);
-
-    let pitch_in_bases = if f < 2.5f64.log(10.0) {
-        10u64.pow(c as u32)
-    } else if f < 5.0f64.log(10.0) {
-        10u64.pow(c as u32 + 1) / 4
-    } else {
-        10u64.pow(c as u32 + 1) / 2
-    };
-
-    TickPitch {
-        pitch_in_bases: pitch_in_bases as u32,
-        pixels_per_pitch: pitch_in_bases as f64 / base_per_pixel as f64,
-    }
-}
-
-#[derive(Debug)]
-struct TickLabel {
-    pos: u32,
-    text: String,
-    is_end: (bool, bool),
-    close_to_next: bool,
-}
-
-impl TickLabel {
-    fn index(&self) -> usize {
-        match (self.is_end.1, self.is_end.0) {
-            (false, true) | (true, true) => 0,
-            (false, false) => 1,
-            (true, false) => 2,
-        }
-    }
-}
-
-fn determine_subunit(pitch: &TickPitch) -> u64 {
-    10u64.pow((pitch.pitch_in_bases as f64).log(10.0).floor() as u32 / 3 * 3)
-}
-
-fn build_tick_labels(seq: &Seq, pitch: &TickPitch, include_ends: (bool, bool)) -> Vec<TickLabel> {
-    let pitch_in_bases = pitch.pitch_in_bases as usize;
-    let pos_to_pixel = pitch.pixels_per_pitch / pitch.pitch_in_bases as f64;
-    let subunit = determine_subunit(&pitch);
-
-    let mut labels = Vec::new();
-    let mut push = |seq_pos: usize, extra: usize, is_end: (bool, bool), close_to_next: bool| {
-        let tick_pos = ((seq_pos - seq.range.start) as f64 * pos_to_pixel) as u32;
-        labels.push(TickLabel {
-            pos: tick_pos + extra as u32,
-            text: format!("{:.1}", seq_pos as f64 / subunit as f64),
-            is_end,
-            close_to_next,
-        });
-    };
-
-    let mut seq_pos = seq.range.start;
-    if include_ends.0 {
-        push(seq_pos, 0, (true, false), false);
-    }
-    loop {
-        seq_pos = (seq_pos + 1).div_ceil(pitch_in_bases) * pitch_in_bases;
-        if seq_pos >= seq.range.end {
-            break;
-        }
-        push(seq_pos, 0, (false, false), seq_pos + pitch_in_bases / 2 >= seq.range.end);
-    }
-    if include_ends.1 {
-        push(seq.range.end, 1, (false, true), false);
-    }
-    labels
-}
-
-struct TickAnchor {
-    hide_tick: bool,
-    tick_pos: (u32, u32),
-    tick_dir: TickDirection,
-    hide_label: bool,
-    label_pos: (i32, i32),
-    label_anchor: Pos,
 }
 
 pub struct PlotterConfig {
-    margin: usize,
-    spacer_thickness: usize,
-    x_label_area_height: usize,
-    y_label_area_width: usize,
-    legend_left_margin: usize,
-    legend_bottom_margin: usize,
-    color_scale_height: usize,
-    color_scale_width: usize,
-    color_scale_length: usize,
-    length_scale_height: usize,
-    length_scale_width: usize,
-    axes_thickness: usize,
-    target_tick_pitch: usize,
-    tick_len: usize,
-    tick_label_setback: usize,
-    tick_label_font_size: usize,
-    x_seq_name_setback: usize,
-    y_seq_name_setback: usize,
-    seq_name_font_size: usize,
+    margin: u32,
+    spacer_thickness: u32,
+    x_label_area_height: u32,
+    y_label_area_width: u32,
+    legend_left_margin: u32,
+    legend_bottom_margin: u32,
+    color_scale_height: u32,
+    color_scale_width: u32,
+    color_scale_length: u32,
+    length_scale_height: u32,
+    length_scale_width: u32,
+    axes_thickness: u32,
+    target_tick_pitch: u32,
+    x_tick: TickConfig,
+    y_tick: TickConfig,
+    x_seq_name_setback: u32,
+    y_seq_name_setback: u32,
+    seq_name_font_size: u32,
     count_per_seed: f64,
     scale: f64,
 }
@@ -532,11 +571,8 @@ pub struct PlotterConfig {
 pub struct Plotter<'a> {
     color_map: ColorMap,
     c: PlotterConfig,
-    tick_label_style: TextStyle<'a>,
     x_seq_name_style: TextStyle<'a>,
-    x_seq_name_anchors: Vec<Pos>,
     y_seq_name_style: TextStyle<'a>,
-    y_seq_name_anchors: Vec<Pos>,
 }
 
 impl<'a> Plotter<'a> {
@@ -554,54 +590,49 @@ impl<'a> Plotter<'a> {
             length_scale_height: 20,
             length_scale_width: 150,
             axes_thickness: 1,
-            target_tick_pitch: 150,
-            tick_len: 3,
-            tick_label_setback: 5,
-            tick_label_font_size: 12,
+            target_tick_pitch: 25,
+            x_tick: TickConfig {
+                len: (3, 1),
+                label_setback: 5,
+                label_font_size: 12,
+                tick_direction: TickDirection::Down,
+                axis_direction: TickDirection::Right,
+            },
+            y_tick: TickConfig {
+                len: (3, 1),
+                label_setback: 5,
+                label_font_size: 12,
+                tick_direction: TickDirection::Left,
+                axis_direction: TickDirection::Up,
+            },
             x_seq_name_setback: 25,
             y_seq_name_setback: 35,
             seq_name_font_size: 12,
             count_per_seed,
             scale,
         };
-        assert!(c.tick_len < c.tick_label_setback);
-        assert!(c.tick_label_setback < c.x_seq_name_setback);
-        assert!(c.tick_label_setback < c.y_seq_name_setback);
-        assert!(c.axes_thickness + c.x_seq_name_setback < c.x_label_area_height);
-        assert!(c.axes_thickness + c.y_seq_name_setback < c.y_label_area_width);
+        // assert!(c.tick_len < c.tick_label_setback);
+        // assert!(c.tick_label_setback < c.x_seq_name_setback);
+        // assert!(c.tick_label_setback < c.y_seq_name_setback);
+        // assert!(c.axes_thickness + c.x_seq_name_setback < c.x_label_area_height);
+        // assert!(c.axes_thickness + c.y_seq_name_setback < c.y_label_area_width);
 
         let color_map = ColorMap::new(&[(255, 255, 255), (255, 0, 64), (0, 64, 255)], c.count_per_seed, c.scale);
-        let tick_label_style = TextStyle::from(("sans-serif", c.tick_label_font_size as u32).into_font()).color(&BLACK);
-        let seq_name_style = TextStyle::from(("sans-serif", c.seq_name_font_size as u32).into_font()).color(&BLACK);
+        let seq_name_style = TextStyle::from(("sans-serif", c.seq_name_font_size).into_font()).color(&BLACK);
         let x_seq_name_style = seq_name_style.pos(Pos::new(HPos::Center, VPos::Top));
         let y_seq_name_style = seq_name_style
             .transform(FontTransform::Rotate270)
             .pos(Pos::new(HPos::Center, VPos::Bottom));
-
-        let x_seq_name_anchors = [
-            Pos::new(HPos::Left, VPos::Top),   // for left labels
-            Pos::new(HPos::Center, VPos::Top), // for middle labels
-            Pos::new(HPos::Right, VPos::Top),  // for right labels
-        ];
-        let y_seq_name_anchors = [
-            Pos::new(HPos::Right, VPos::Bottom), // for bottom labels
-            Pos::new(HPos::Right, VPos::Center), // for middle labels
-            Pos::new(HPos::Right, VPos::Top),    // for top labels
-        ];
-
         Plotter {
             color_map,
             c,
-            tick_label_style,
             x_seq_name_style,
-            x_seq_name_anchors: x_seq_name_anchors.to_vec(),
             y_seq_name_style,
-            y_seq_name_anchors: y_seq_name_anchors.to_vec(),
         }
     }
 
     fn draw_block(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, block: &Block, color_map: &ColorMap) -> Result<()> {
-        let areas = area.split_by_breakpoints([block.width as u32], [self.c.spacer_thickness as u32]);
+        let areas = area.split_by_breakpoints([block.width as u32], [self.c.spacer_thickness]);
         let spacer_color = RGBColor(192, 208, 192);
         areas[0].fill(&spacer_color)?;
         areas[1].fill(&spacer_color)?;
@@ -621,264 +652,217 @@ impl<'a> Plotter<'a> {
         Ok(())
     }
 
-    fn draw_ticks<F>(
-        &self,
-        tick_area: &DrawingArea<BitMapBackend<'_>, Shift>,
-        label_area: &DrawingArea<BitMapBackend<'_>, Shift>,
-        ticks: &[TickLabel],
-        get_anchor: F,
-    ) -> Result<()>
-    where
-        F: Fn(&TickLabel) -> TickAnchor,
-    {
-        for tick in ticks {
-            let anchor = get_anchor(tick);
-            if !anchor.hide_tick {
-                tick_area.draw(&Tick::new(anchor.tick_pos, self.c.tick_len as u32, anchor.tick_dir))?;
-            }
-            if !anchor.hide_label {
-                label_area.draw_text(&tick.text, &self.tick_label_style.pos(anchor.label_anchor), anchor.label_pos)?;
-            }
-        }
-        Ok(())
-    }
+    // fn draw_ticks<F>(
+    //     &self,
+    //     tick_area: &DrawingArea<BitMapBackend<'_>, Shift>,
+    //     label_area: &DrawingArea<BitMapBackend<'_>, Shift>,
+    //     ticks: &[TickLabel],
+    //     get_anchor: F,
+    // ) -> Result<()>
+    // where
+    //     F: Fn(&TickLabel) -> TickAnchor,
+    // {
+    //     for tick in ticks {
+    //         let anchor = get_anchor(tick);
+    //         if anchor.show_tick {
+    //             tick_area.draw(&Tick::new(anchor.tick_pos, self.c.tick_len as u32, anchor.tick_dir))?;
+    //         }
+    //         if anchor.show_label {
+    //             label_area.draw_text(&tick.text, &self.tick_label_style.pos(anchor.label_anchor), anchor.label_pos)?;
+    //         }
+    //     }
+    //     Ok(())
+    // }
 
     fn draw_xlabel(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, seq: &[Seq], brks: &Breakpoints, pitch: &TickPitch) -> Result<()> {
-        let (w0, _) = area.estimate_text_size("0", &self.tick_label_style)?;
-        let w0 = w0 as i32 / 2;
+        let (w, _) = area.dim_in_pixel();
+        area.draw(&Rectangle::new(
+            [(-1, 0), (w as i32, self.c.axes_thickness as i32)],
+            ShapeStyle {
+                color: BLACK.into(),
+                filled: true,
+                stroke_width: 0,
+            },
+        ))?;
 
         let areas = area.split_by_breakpoints(brks.as_slice(), &[] as &[u32]);
         for (area, seq) in areas.iter().zip(seq.iter()) {
-            let areas = area.split_by_breakpoints(
-                &[] as &[u32],
-                [
-                    self.c.axes_thickness as u32,
-                    self.c.axes_thickness as u32 + self.c.tick_label_setback as u32,
-                    self.c.axes_thickness as u32 + self.c.x_seq_name_setback as u32,
-                ],
-            );
-            areas[0].fill(&BLACK)?;
-
-            let ticks = build_tick_labels(seq, &pitch, (true, true));
-            self.draw_ticks(&areas[1], &areas[2], &ticks, |tick| {
-                let label_pos = match tick.index() {
-                    0 => (tick.pos as i32 + w0, 0),
-                    1 => (tick.pos as i32, 0),
-                    _ => (tick.pos as i32 - w0, 0),
-                };
-                TickAnchor {
-                    hide_tick: tick.is_end.0,
-                    tick_pos: (tick.pos, 0),
-                    tick_dir: TickDirection::Down,
-                    hide_label: tick.close_to_next,
-                    label_pos,
-                    label_anchor: self.x_seq_name_anchors[tick.index()],
-                }
-            })?;
-
-            let (w, _) = areas[3].dim_in_pixel();
-            areas[3].draw_text(&seq.name, &self.x_seq_name_style, (w as i32 / 2, 0))?;
+            let (w, _) = area.dim_in_pixel();
+            let ticks = pitch.to_ticks((0, 0), &seq.range, &self.c.x_tick, |i, subunit| {
+                format!("{:.1}", i as f64 / subunit as f64)
+            });
+            for tick in &ticks {
+                area.draw(tick)?;
+            }
+            area.draw_text(&seq.name, &self.x_seq_name_style, (w as i32 / 2, self.c.x_seq_name_setback as i32))?;
         }
         Ok(())
     }
 
     fn draw_ylabel(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, seq: &[Seq], brks: &Breakpoints, pitch: &TickPitch) -> Result<()> {
-        let calc_pos = |area: &DrawingArea<BitMapBackend<'_>, Shift>, pos: (u32, u32)| {
-            let (w, h) = area.dim_in_pixel();
-            (w - pos.0 - 1, h - pos.1 - 1)
-        };
+        let (w, h) = area.dim_in_pixel();
+        area.draw(&Rectangle::new(
+            [(w as i32 - self.c.axes_thickness as i32, 0), (w as i32, h as i32 + 1)],
+            ShapeStyle {
+                color: BLACK.into(),
+                filled: true,
+                stroke_width: 0,
+            },
+        ))?;
 
-        let (w, _) = area.dim_in_pixel();
         let areas = area.split_by_breakpoints(&[] as &[u32], brks.as_slice());
         for (area, seq) in areas.iter().rev().zip(seq.iter()) {
-            let areas = {
-                let mut areas = area.split_by_breakpoints(
-                    [
-                        w - self.c.axes_thickness as u32 - self.c.y_seq_name_setback as u32,
-                        w - self.c.axes_thickness as u32 - self.c.tick_label_setback as u32,
-                        w - self.c.axes_thickness as u32,
-                    ],
-                    &[] as &[u32],
-                );
-                areas.reverse();
-                areas
-            };
-            areas[0].fill(&BLACK)?;
-
-            let ticks = build_tick_labels(seq, &pitch, (true, true));
-            self.draw_ticks(&areas[1], &areas[2], &ticks, |tick| {
-                let tick_pos = calc_pos(&areas[1], (0, tick.pos));
-                let label_pos = calc_pos(&areas[2], (0, tick.pos));
-                TickAnchor {
-                    hide_tick: tick.is_end.0,
-                    tick_pos,
-                    tick_dir: TickDirection::Left,
-                    hide_label: tick.close_to_next,
-                    label_pos: (label_pos.0 as i32, label_pos.1 as i32),
-                    label_anchor: self.y_seq_name_anchors[tick.index()],
-                }
-            })?;
-
-            let (_, h) = areas[3].dim_in_pixel();
-            let pos = calc_pos(&areas[3], (0, h / 2));
-            areas[3].draw_text(&seq.name, &self.y_seq_name_style, (pos.0 as i32, pos.1 as i32))?;
+            let (w, h) = area.dim_in_pixel();
+            let ticks = pitch.to_ticks((w as i32 - 1, h as i32 - 1), &seq.range, &self.c.y_tick, |i, subunit| {
+                format!("{:.1}", i as f64 / subunit as f64)
+            });
+            for tick in &ticks {
+                area.draw(tick)?;
+            }
+            area.draw_text(
+                &seq.name,
+                &self.y_seq_name_style,
+                (w as i32 - self.c.y_seq_name_setback as i32, h as i32 / 2),
+            )?;
         }
-
         Ok(())
     }
 
-    fn draw_origin(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>) -> Result<()> {
-        let (w, _) = area.dim_in_pixel();
-        let t = self.c.axes_thickness as u32;
-        let areas = area.split_by_breakpoints([w - t], [t]);
+    // fn draw_origin(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>) -> Result<()> {
+    //     let (w, _) = area.dim_in_pixel();
+    //     let t = self.c.axes_thickness;
+    //     let areas = area.split_by_breakpoints([w - t], [t]);
 
-        areas[1].fill(&BLACK)?;
-        areas[0].draw(&Tick::new(
-            (areas[0].dim_in_pixel().0 - 1, 0),
-            self.c.tick_len as u32,
-            TickDirection::Left,
-        ))?;
-        areas[3].draw(&Tick::new(
-            (areas[3].dim_in_pixel().0 - 1, 0),
-            self.c.tick_len as u32,
-            TickDirection::Down,
-        ))?;
-        Ok(())
-    }
+    //     areas[1].fill(&BLACK)?;
+    //     areas[0].draw(&Tick::new(
+    //         (areas[0].dim_in_pixel().0 - 1, 0),
+    //         self.c.x_tick.len.0,
+    //         TickDirection::Left,
+    //     ))?;
+    //     areas[3].draw(&Tick::new(
+    //         (areas[3].dim_in_pixel().0 - 1, 0),
+    //         self.c.y_tick.len.0,
+    //         TickDirection::Down,
+    //     ))?;
+    //     Ok(())
+    // }
 
     fn draw_length_scale(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, tile: &BlockTile) -> Result<()> {
-        let pitch = determine_tick_pitch(self.c.target_tick_pitch, tile.base_per_pixel());
-        let subunit = determine_subunit(&pitch);
-        let subunit = ["bp", "kbp", "Mbp", "Gbp"][subunit.ilog(10) as usize / 3];
+        let pitch = TickPitch::new(self.c.target_tick_pitch, tile.base_per_pixel() as u32);
+        let subunit = ["bp", "kbp", "Mbp", "Gbp"][pitch.subunit.ilog(10) as usize / 3];
 
-        let dummy_seq = Seq {
-            name: "".to_string(),
-            range: 0..pitch.pitch_in_bases as usize,
-        };
-        let mut ticks = build_tick_labels(&dummy_seq, &pitch, (true, true));
-        if let Some(last) = ticks.last_mut() {
-            last.text = format!("{} {}", last.text, subunit);
-        }
-
-        let areas = area.split_by_breakpoints(
-            &[] as &[u32],
-            [
-                self.c.tick_len as u32,
-                self.c.tick_len as u32 + self.c.axes_thickness as u32,
-                self.c.tick_len as u32 + self.c.axes_thickness as u32 + self.c.tick_label_setback as u32,
-            ],
+        // ticks
+        let mut ticks = pitch.to_ticks(
+            (0, self.c.x_tick.len.0 as i32 + self.c.axes_thickness as i32),
+            &(0..(pitch.label_period * pitch.pitch_in_bases) as usize),
+            &self.c.x_tick,
+            |i, subunit| format!("{:.1}", i as f64 / subunit as f64),
         );
 
-        // draw axis
-        {
-            let w = ticks.last().unwrap().pos + 1;
-            let areas = areas[1].split_by_breakpoints(&[w], &[] as &[u32]);
-            areas[0].fill(&BLACK)?;
+        // slightly modify the first and last ticks
+        let anchor = Pos::new(HPos::Center, VPos::Top);
+        let adj = self.c.x_tick.len.0 + self.c.axes_thickness;
+        if let Some(tick) = ticks.first_mut() {
+            tick.label_anchor = anchor;
+            tick.tick_start.1 -= adj as i32;
         }
-        // upward ticks
-        self.draw_ticks(&areas[0], &areas[3], &ticks, |tick| TickAnchor {
-            hide_tick: false,
-            tick_pos: (tick.pos, self.c.tick_len as u32 - 1),
-            tick_dir: TickDirection::Up,
-            hide_label: true,
-            label_pos: (0, 0),
-            label_anchor: self.x_seq_name_anchors[0],
-        })?;
-        // downward ticks
-        self.draw_ticks(&areas[2], &areas[3], &ticks, |tick| TickAnchor {
-            hide_tick: false,
-            tick_pos: (tick.pos, 0),
-            tick_dir: TickDirection::Down,
-            hide_label: false,
-            label_pos: (tick.pos as i32, 0),
-            label_anchor: self.x_seq_name_anchors[1],
-        })?;
+        if let Some(tick) = ticks.last_mut() {
+            tick.label_anchor = anchor;
+            tick.label = Some(format!("{} {}", tick.label.as_ref().unwrap(), subunit));
+            tick.tick_start.1 -= adj as i32;
+        }
+        for tick in &ticks {
+            area.draw(tick)?;
+        }
+
+        // draw axis
+        let w = ticks.last().unwrap().tick_start.0 + 1;
+        area.draw(&Rectangle::new(
+            [
+                (0, self.c.x_tick.len.0 as i32),
+                (w, self.c.x_tick.len.0 as i32 + self.c.axes_thickness as i32),
+            ],
+            ShapeStyle {
+                color: BLACK.into(),
+                filled: true,
+                stroke_width: 0,
+            },
+        ))?;
         Ok(())
     }
 
     fn draw_color_scale(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>) -> Result<()> {
         let max_seeds = 100;
-        let pitch = determine_tick_pitch(self.c.color_scale_length / 3, max_seeds / self.c.color_scale_length);
+        let pitch = TickPitch::new(self.c.color_scale_length / 3, max_seeds / self.c.color_scale_length);
+        let areas = area.split_by_breakpoints(&[] as &[u32], [self.c.x_tick.len.0, self.c.x_tick.len.0 + self.c.axes_thickness]);
+        // draw color scale
+        let len = self.c.x_tick.len.0 as i32;
+        let max_seeds = max_seeds as f64;
+        for i in 0..self.c.color_scale_length {
+            let cnt = max_seeds.powf(i as f64 / self.c.color_scale_length as f64);
+            let cf = self.color_map.get_rgb_color(&[0, 1], cnt as u32);
+            let cr = self.color_map.get_rgb_color(&[0, 2], cnt as u32);
 
-        let dummy_seq = Seq {
-            name: "".to_string(),
-            range: 0..max_seeds,
-        };
-        let mut ticks = build_tick_labels(&dummy_seq, &pitch, (true, true));
-        if let Some(last) = ticks.last_mut() {
-            last.text = format!("{} hits/px", last.text);
+            area.draw(&Rectangle::new(
+                [(i as i32 + 1, 0), (i as i32 + 2, len)],
+                ShapeStyle {
+                    color: cf.into(),
+                    filled: true,
+                    stroke_width: 0,
+                },
+            ))?;
+            area.draw(&Rectangle::new(
+                [(i as i32 + 1, len), (i as i32 + 2, 2 * len)],
+                ShapeStyle {
+                    color: cr.into(),
+                    filled: true,
+                    stroke_width: 0,
+                },
+            ))?;
         }
 
-        let areas = area.split_by_breakpoints(
-            &[] as &[u32],
-            [
-                self.c.tick_len as u32,
-                self.c.tick_len as u32 + self.c.axes_thickness as u32,
-                self.c.tick_len as u32 + self.c.axes_thickness as u32 + self.c.tick_label_setback as u32,
-            ],
+        // upward ticks
+        let up_ticks = pitch.to_ticks(
+            (0, 0),
+            &(0..pitch.pitch_in_bases as usize),
+            &TickConfig {
+                tick_direction: TickDirection::Up,
+                ..self.c.x_tick
+            },
+            |_, _| "".to_string(),
         );
-        // draw color scale
-        for i in 0..self.c.color_scale_length {
-            let cnt = i as f64 * max_seeds as f64 / (self.c.color_scale_length - 1) as f64;
-            let c = self.color_map.get_color(&[0, 1], cnt as u32);
-            areas[0].draw(&Rectangle::new(
-                [(i as i32 + 1, 0), (i as i32 + 2, self.c.tick_len as i32)],
-                ShapeStyle {
-                    color: RGBColor(c.0, c.1, c.2).into(),
-                    filled: true,
-                    stroke_width: 0,
-                },
-            ))?;
-
-            let c = self.color_map.get_color(&[0, 2], cnt as u32);
-            areas[2].draw(&Rectangle::new(
-                [(i as i32 + 1, 0), (i as i32 + 2, self.c.tick_len as i32)],
-                ShapeStyle {
-                    color: RGBColor(c.0, c.1, c.2).into(),
-                    filled: true,
-                    stroke_width: 0,
-                },
-            ))?;
+        for tick in &up_ticks {
+            areas[0].draw(tick)?;
         }
 
         // draw axis
         {
-            let w = ticks.last().unwrap().pos + 1;
+            let w = up_ticks.last().unwrap().tick_start.0 + 1;
             let areas = areas[1].split_by_breakpoints(&[w], &[] as &[u32]);
             areas[0].fill(&BLACK)?;
         }
-        // upward ticks
-        self.draw_ticks(&areas[0], &areas[3], &ticks, |tick| TickAnchor {
-            hide_tick: false,
-            tick_pos: (tick.pos, self.c.tick_len as u32 - 1),
-            tick_dir: TickDirection::Up,
-            hide_label: true,
-            label_pos: (0, 0),
-            label_anchor: self.x_seq_name_anchors[0],
-        })?;
+
         // downward ticks
-        self.draw_ticks(&areas[2], &areas[3], &ticks, |tick| TickAnchor {
-            hide_tick: false,
-            tick_pos: (tick.pos, 0),
-            tick_dir: TickDirection::Down,
-            hide_label: false,
-            label_pos: (tick.pos as i32, 0),
-            label_anchor: self.x_seq_name_anchors[1],
-        })?;
+        let down_ticks = pitch.to_ticks((0, 0), &(0..pitch.pitch_in_bases as usize), &self.c.x_tick, |i, subunit| {
+            format!("{:.1}", i as f64 / subunit as f64)
+        });
+        for tick in &down_ticks {
+            areas[2].draw(tick)?;
+        }
         Ok(())
     }
 
     pub fn plot(&self, name: &str, tile: &BlockTile) -> Result<()> {
-        let pitch = determine_tick_pitch(self.c.target_tick_pitch, tile.base_per_pixel());
+        let pitch = TickPitch::new(self.c.target_tick_pitch, tile.base_per_pixel() as u32);
         let pixels = (
             tile.horizontal_pixels()
                 .iter()
-                .map(|&x| x + self.c.spacer_thickness as u32)
+                .map(|&x| x + self.c.spacer_thickness)
                 .collect::<Vec<_>>(),
             tile.vertical_pixels()
                 .iter()
                 .rev()
-                .map(|&x| x + self.c.spacer_thickness as u32)
+                .map(|&x| x + self.c.spacer_thickness)
                 .collect::<Vec<_>>(),
         );
         let brks = (Breakpoints::from_pixels(&pixels.0), Breakpoints::from_pixels(&pixels.1));
@@ -931,7 +915,7 @@ impl<'a> Plotter<'a> {
             &brks.0,
             &pitch,
         )?;
-        self.draw_origin(areas.get_area(".root[center].stack[1].blocks_with_label[left-bottom]")?)?;
+        // self.draw_origin(areas.get_area(".root[center].stack[1].blocks_with_label[left-bottom]")?)?;
         self.draw_length_scale(areas.get_area(".root[center].stack[0].legend[center].stack[0].length_scale")?, tile)?;
         self.draw_color_scale(areas.get_area(".root[center].stack[0].legend[center].stack[1].color_scale")?)?;
         areas.present()?;
