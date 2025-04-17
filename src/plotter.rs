@@ -283,20 +283,18 @@ impl<'a> StructuredDrawingArea<'a> {
 #[derive(Debug)]
 struct ColorMap {
     palette: Vec<(u8, u8, u8)>,
-    count_per_seed: f64,
-    scale: f64,
+    density: f64,
 }
 
 impl ColorMap {
-    fn new(palette: &[(u8, u8, u8)], count_per_seed: f64, scale: f64) -> ColorMap {
+    fn new(palette: &[(u8, u8, u8)], density: f64) -> ColorMap {
         ColorMap {
             palette: palette.to_vec(),
-            count_per_seed,
-            scale,
+            density,
         }
     }
 
-    fn get_color(&self, palette_index: &[usize], val: u32) -> (u8, u8, u8) {
+    fn get_color(&self, palette_index: &[usize], val: u32, base_per_pixel: f64) -> (u8, u8, u8) {
         let min = self.palette[palette_index[0]];
         let max = self.palette[palette_index[1]];
 
@@ -308,14 +306,15 @@ impl ColorMap {
             (r as u8, g as u8, b as u8)
         };
 
-        let occ = val as f64 * self.count_per_seed;
-        let occ = self.scale * occ.log2();
-        let occ = (occ as i32).clamp(0, 256) as u32;
-        blend(min, max, occ)
+        let target_count = self.density * (base_per_pixel / 1000.0).powf(2.0);
+        eprintln!("target_count: {}, val: {}", target_count, val);
+        let val = (val as f64 / target_count).log2() + 64.0;
+        let val = (val as i32).clamp(0, 256) as u32;
+        blend(min, max, val)
     }
 
-    fn get_rgb_color(&self, palette_index: &[usize], val: u32) -> RGBColor {
-        let (r, g, b) = self.get_color(palette_index, val);
+    fn get_rgb_color(&self, palette_index: &[usize], val: u32, base_per_pixel: f64) -> RGBColor {
+        let (r, g, b) = self.get_color(palette_index, val, base_per_pixel);
         RGBColor(r, g, b)
     }
 }
@@ -354,7 +353,10 @@ where
         let pos = pos.next().unwrap();
         for (y, line) in self.block.cnt.chunks(self.block.width).rev().enumerate() {
             for (x, cnt) in line.iter().enumerate() {
-                let c = std::cmp::min(self.color_map.get_color(&[0, 1], cnt[0]), self.color_map.get_color(&[0, 2], cnt[1]));
+                let c = std::cmp::min(
+                    self.color_map.get_color(&[0, 1], cnt[0], self.block.base_per_pixel as f64),
+                    self.color_map.get_color(&[0, 2], cnt[1], self.block.base_per_pixel as f64),
+                );
                 backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), RGBColor(c.0, c.1, c.2).color())?;
             }
         }
@@ -559,8 +561,6 @@ pub struct PlotterConfig {
     x_seq_name_setback: u32,
     y_seq_name_setback: u32,
     seq_name_font_size: u32,
-    count_per_seed: f64,
-    scale: f64,
 }
 
 pub struct Plotter<'a> {
@@ -571,7 +571,9 @@ pub struct Plotter<'a> {
 }
 
 impl<'a> Plotter<'a> {
-    pub fn new(count_per_seed: f64, scale: f64) -> Plotter<'a> {
+    pub fn new(density: f64, swap_plot_axes: bool) -> Plotter<'a> {
+        assert!(!swap_plot_axes);
+
         let c = PlotterConfig {
             margin: 20,
             spacer_thickness: 1,
@@ -603,10 +605,8 @@ impl<'a> Plotter<'a> {
             x_seq_name_setback: 25,
             y_seq_name_setback: 35,
             seq_name_font_size: 12,
-            count_per_seed,
-            scale,
         };
-        let color_map = ColorMap::new(&[(255, 255, 255), (255, 0, 64), (0, 64, 255)], c.count_per_seed, c.scale);
+        let color_map = ColorMap::new(&[(255, 255, 255), (255, 0, 64), (0, 64, 255)], density);
         let seq_name_style = TextStyle::from(("sans-serif", c.seq_name_font_size).into_font()).color(&BLACK);
         let x_seq_name_style = seq_name_style.pos(Pos::new(HPos::Center, VPos::Top));
         let y_seq_name_style = seq_name_style
@@ -724,7 +724,7 @@ impl<'a> Plotter<'a> {
         Ok(())
     }
 
-    fn draw_color_scale(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>) -> Result<()> {
+    fn draw_color_scale(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, tile: &BlockTile) -> Result<()> {
         let max_seeds = 1000f64;
         let pitch = TickPitch::new(self.c.color_scale_length / 3, 1);
         eprintln!("pitch: {:?}", pitch);
@@ -739,10 +739,11 @@ impl<'a> Plotter<'a> {
         );
 
         // draw color scale
+        let base_per_pixel = tile.base_per_pixel() as f64;
         for i in 0..self.c.color_scale_length {
             let cnt = max_seeds.powf(i as f64 / self.c.color_scale_length as f64);
-            let cf = self.color_map.get_rgb_color(&[0, 1], cnt as u32).filled();
-            let cr = self.color_map.get_rgb_color(&[0, 2], cnt as u32).filled();
+            let cf = self.color_map.get_rgb_color(&[0, 1], cnt as u32, base_per_pixel).filled();
+            let cr = self.color_map.get_rgb_color(&[0, 2], cnt as u32, base_per_pixel).filled();
             areas[0].draw(&Rectangle::new([(i as i32 + 1, 0), (i as i32 + 2, self.c.x_tick.len.0 as i32)], cf))?;
             areas[2].draw(&Rectangle::new([(i as i32 + 1, 0), (i as i32 + 2, self.c.x_tick.len.0 as i32)], cr))?;
         }
@@ -849,7 +850,7 @@ impl<'a> Plotter<'a> {
         )?;
         // self.draw_origin(areas.get_area(".root[center].stack[1].blocks_with_label[left-bottom]")?)?;
         self.draw_length_scale(areas.get_area(".root[center].stack[0].legend[center].stack[0].length_scale")?, tile)?;
-        self.draw_color_scale(areas.get_area(".root[center].stack[0].legend[center].stack[1].color_scale")?)?;
+        self.draw_color_scale(areas.get_area(".root[center].stack[0].legend[center].stack[1].color_scale")?, tile)?;
         areas.present()?;
 
         Ok(())

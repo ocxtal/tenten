@@ -50,20 +50,6 @@ pub struct Args {
     pub density: f64,
 
     #[clap(
-        short = 'M',
-        long,
-        help = "Do not output image if seed density is less than this value",
-        default_value = "0"
-    )]
-    pub min_density: f64,
-
-    #[clap(short = 'c', long, help = "Count per seed", default_value = "1", value_parser = parse_usize)]
-    pub count_per_seed: usize,
-
-    #[clap(short = 's', long, help = "Scaling factor", default_value = "25")]
-    pub scale: f64,
-
-    #[clap(
         short = 'm',
         long,
         help = "Do not output image if #seed is less than this value",
@@ -243,7 +229,7 @@ impl<'a> Context<'a> {
             rseq,
             qseq,
             bin,
-            plotter: Plotter::new(args.count_per_seed as f64, args.scale),
+            plotter: Plotter::new(args.density, args.swap_plot_axes),
             args: args.clone(),
         }
     }
