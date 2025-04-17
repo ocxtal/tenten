@@ -280,23 +280,55 @@ impl<'a> StructuredDrawingArea<'a> {
     }
 }
 
-#[derive(Debug)]
-struct ColorMap {
+#[derive(Clone, Debug)]
+struct ColorMapConfig {
     palette: Vec<(u8, u8, u8)>,
     density: f64,
+    min_density: f64,
 }
 
-impl ColorMap {
-    fn new(palette: &[(u8, u8, u8)], density: f64) -> ColorMap {
-        ColorMap {
+impl ColorMapConfig {
+    fn new(palette: &[(u8, u8, u8)], density: f64, min_density: f64) -> ColorMapConfig {
+        ColorMapConfig {
             palette: palette.to_vec(),
             density,
+            min_density,
         }
     }
 
-    fn get_color(&self, palette_index: &[usize], val: u32, base_per_pixel: f64) -> (u8, u8, u8) {
-        let min = self.palette[palette_index[0]];
-        let max = self.palette[palette_index[1]];
+    fn to_color_map<'a>(&'a self, base_per_pixel: f64) -> ColorMap<'a> {
+        let expansion = (1000.0 / base_per_pixel).powf(2.0);
+        let target_count = self.density * expansion;
+        let min_count = self.min_density * expansion;
+        eprintln!(
+            "expansion: {}, target_count: {}, {}, val: {}, {}",
+            expansion,
+            target_count,
+            target_count.log2(),
+            min_count,
+            min_count.log2()
+        );
+        ColorMap {
+            c: self,
+            expansion,
+            offset: min_count.log2(),
+            scale: 128.0 / (target_count.log2() - min_count.log2()),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ColorMap<'a> {
+    c: &'a ColorMapConfig,
+    expansion: f64,
+    offset: f64,
+    scale: f64,
+}
+
+impl ColorMap<'_> {
+    fn get_color(&self, palette_index: &[usize], val: u32) -> (u8, u8, u8) {
+        let min = self.c.palette[palette_index[0]];
+        let max = self.c.palette[palette_index[1]];
 
         let blend = |min: (u8, u8, u8), max: (u8, u8, u8), val: u32| -> (u8, u8, u8) {
             let r = (min.0 as u32 * (256 - val) + max.0 as u32 * val) / 256;
@@ -305,16 +337,13 @@ impl ColorMap {
 
             (r as u8, g as u8, b as u8)
         };
-
-        let target_count = self.density * (base_per_pixel / 1000.0).powf(2.0);
-        eprintln!("target_count: {}, val: {}", target_count, val);
-        let val = (val as f64 / target_count).log2() + 64.0;
+        let val = self.scale * ((val as f64).log2() - self.offset);
         let val = (val as i32).clamp(0, 256) as u32;
         blend(min, max, val)
     }
 
-    fn get_rgb_color(&self, palette_index: &[usize], val: u32, base_per_pixel: f64) -> RGBColor {
-        let (r, g, b) = self.get_color(palette_index, val, base_per_pixel);
+    fn get_rgb_color(&self, palette_index: &[usize], val: u32) -> RGBColor {
+        let (r, g, b) = self.get_color(palette_index, val);
         RGBColor(r, g, b)
     }
 }
@@ -323,7 +352,7 @@ impl ColorMap {
 #[derive(Debug)]
 struct DrawableBlock<'a> {
     block: &'a Block,
-    color_map: &'a ColorMap,
+    color_map: &'a ColorMap<'a>,
 }
 
 impl<'a> DrawableBlock<'a> {
@@ -353,10 +382,7 @@ where
         let pos = pos.next().unwrap();
         for (y, line) in self.block.cnt.chunks(self.block.width).rev().enumerate() {
             for (x, cnt) in line.iter().enumerate() {
-                let c = std::cmp::min(
-                    self.color_map.get_color(&[0, 1], cnt[0], self.block.base_per_pixel as f64),
-                    self.color_map.get_color(&[0, 2], cnt[1], self.block.base_per_pixel as f64),
-                );
+                let c = std::cmp::min(self.color_map.get_color(&[0, 1], cnt[0]), self.color_map.get_color(&[0, 2], cnt[1]));
                 backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), RGBColor(c.0, c.1, c.2).color())?;
             }
         }
@@ -564,14 +590,14 @@ pub struct PlotterConfig {
 }
 
 pub struct Plotter<'a> {
-    color_map: ColorMap,
+    color_map_config: ColorMapConfig,
     c: PlotterConfig,
     x_seq_name_style: TextStyle<'a>,
     y_seq_name_style: TextStyle<'a>,
 }
 
 impl<'a> Plotter<'a> {
-    pub fn new(density: f64, swap_plot_axes: bool) -> Plotter<'a> {
+    pub fn new(density: f64, min_density: f64, swap_plot_axes: bool) -> Plotter<'a> {
         assert!(!swap_plot_axes);
 
         let c = PlotterConfig {
@@ -606,14 +632,14 @@ impl<'a> Plotter<'a> {
             y_seq_name_setback: 35,
             seq_name_font_size: 12,
         };
-        let color_map = ColorMap::new(&[(255, 255, 255), (255, 0, 64), (0, 64, 255)], density);
+        let color_map_config = ColorMapConfig::new(&[(255, 255, 255), (255, 0, 64), (0, 64, 255)], density, min_density);
         let seq_name_style = TextStyle::from(("sans-serif", c.seq_name_font_size).into_font()).color(&BLACK);
         let x_seq_name_style = seq_name_style.pos(Pos::new(HPos::Center, VPos::Top));
         let y_seq_name_style = seq_name_style
             .transform(FontTransform::Rotate270)
             .pos(Pos::new(HPos::Center, VPos::Bottom));
         Plotter {
-            color_map,
+            color_map_config,
             c,
             x_seq_name_style,
             y_seq_name_style,
@@ -631,11 +657,12 @@ impl<'a> Plotter<'a> {
     }
 
     fn draw_tile(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, tile: &BlockTile, brks: &(Breakpoints, Breakpoints)) -> Result<()> {
+        let color_map = self.color_map_config.to_color_map(tile.base_per_pixel() as f64);
         let areas = area.split_by_breakpoints(brks.0.as_slice(), brks.1.as_slice());
         for (i, area_chunk) in areas.chunks(brks.0.segments()).rev().enumerate() {
             let blocks = tile.get_row(i);
             for (area, block) in area_chunk.iter().zip(blocks.iter()) {
-                self.draw_block(area, block, &self.color_map)?;
+                self.draw_block(area, block, &color_map)?;
             }
         }
         Ok(())
@@ -725,7 +752,7 @@ impl<'a> Plotter<'a> {
     }
 
     fn draw_color_scale(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, tile: &BlockTile) -> Result<()> {
-        let max_seeds = 1000f64;
+        let max_seeds = 30.0 * self.color_map_config.density;
         let pitch = TickPitch::new(self.c.color_scale_length / 3, 1);
         eprintln!("pitch: {:?}", pitch);
 
@@ -739,11 +766,11 @@ impl<'a> Plotter<'a> {
         );
 
         // draw color scale
-        let base_per_pixel = tile.base_per_pixel() as f64;
+        let color_map = self.color_map_config.to_color_map(tile.base_per_pixel() as f64);
         for i in 0..self.c.color_scale_length {
             let cnt = max_seeds.powf(i as f64 / self.c.color_scale_length as f64);
-            let cf = self.color_map.get_rgb_color(&[0, 1], cnt as u32, base_per_pixel).filled();
-            let cr = self.color_map.get_rgb_color(&[0, 2], cnt as u32, base_per_pixel).filled();
+            let cf = color_map.get_rgb_color(&[0, 1], cnt as u32).filled();
+            let cr = color_map.get_rgb_color(&[0, 2], cnt as u32).filled();
             areas[0].draw(&Rectangle::new([(i as i32 + 1, 0), (i as i32 + 2, self.c.x_tick.len.0 as i32)], cf))?;
             areas[2].draw(&Rectangle::new([(i as i32 + 1, 0), (i as i32 + 2, self.c.x_tick.len.0 as i32)], cr))?;
         }
@@ -763,7 +790,7 @@ impl<'a> Plotter<'a> {
         }
         if let Some(tick) = ticks.last_mut() {
             tick.label_anchor = anchor;
-            tick.label = format!("{}/px^2", &tick.label);
+            tick.label = format!("{}/kbp^2", &tick.label);
             tick.tick_start.1 -= adj as i32;
         }
         for (i, tick) in ticks.iter().enumerate() {

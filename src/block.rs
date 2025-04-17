@@ -238,7 +238,7 @@ impl BlockBin {
         v
     }
 
-    pub fn into_tile(self) -> BlockTile {
+    pub fn into_tile(self, extract_range: bool) -> BlockTile {
         let mut blocks = self.blocks;
         blocks.sort_by(|a, b| a.pair_id.cmp(&b.pair_id));
 
@@ -252,11 +252,22 @@ impl BlockBin {
             vpx.push(block_chunk[0].height as u32);
         }
 
+        let rseq = if extract_range {
+            self.rseq.iter().map(|x| x.to_range_extracted()).collect::<Vec<_>>()
+        } else {
+            self.rseq
+        };
+        let qseq = if extract_range {
+            self.qseq.iter().map(|x| x.to_range_extracted()).collect::<Vec<_>>()
+        } else {
+            self.qseq
+        };
+
         BlockTile {
             hpx,
             vpx,
-            rseq: self.rseq,
-            qseq: self.qseq,
+            rseq,
+            qseq,
             blocks,
         }
     }

@@ -38,16 +38,24 @@ pub struct Args {
     #[clap(short = 'O', long, help = "Use stdout of seed generator, instead of stderr")]
     pub use_stdout: bool,
 
-    #[clap(short = 'r', long, help = "Bases per pixel", default_value = "100", value_parser = parse_usize)]
+    #[clap(short = 'b', long, help = "Bases per pixel", default_value = "100", value_parser = parse_usize)]
     pub base_per_pixel: usize,
 
     #[clap(
         short = 'D',
         long,
         help = "Density of seeds (#per 1kbp square) that corresponds to 50% heatmap scale",
-        default_value = "100.0"
+        default_value = "20.0"
     )]
     pub density: f64,
+
+    #[clap(
+        short = 'M',
+        long,
+        help = "Do not output image if seed density is less than this value",
+        default_value = "0.1"
+    )]
+    pub min_density: f64,
 
     #[clap(
         short = 'm',
@@ -64,9 +72,17 @@ pub struct Args {
     pub swap_plot_axes: bool,
 
     #[clap(
+        short = 'E',
+        long,
+        help = "Extract sequence range from its name on plotting (in the \"chr7:6000000-6300000\" format)",
+        default_value = "false"
+    )]
+    pub extract_range_from_name: bool,
+
+    #[clap(
         short = 'r',
         long,
-        help = "Crop reference sequences by the ranges in this file. in fasta, bed, or \"chr7:6000000-6300000\""
+        help = "Plot seeds only in the ranges in the file for references. Accepts BED or \"chr7:6000000-6300000\" format."
     )]
     pub reference_range: Option<String>,
 
@@ -81,7 +97,7 @@ pub struct Args {
     #[clap(
         short = 'q',
         long,
-        help = "Crop query sequences by the ranges in this file. in fasta, bed, or \"chr7:6000000-6300000\""
+        help = "Plot seeds only in the ranges in the file for queries. Accepts BED or \"chr7:6000000-6300000\" format."
     )]
     pub query_range: Option<String>,
 
@@ -229,7 +245,7 @@ impl<'a> Context<'a> {
             rseq,
             qseq,
             bin,
-            plotter: Plotter::new(args.density, args.swap_plot_axes),
+            plotter: Plotter::new(args.density, args.min_density, args.swap_plot_axes),
             args: args.clone(),
         }
     }
@@ -290,11 +306,11 @@ impl<'a> Context<'a> {
         let bin = std::mem::replace(&mut self.bin, BlockBin::new(&self.rseq, &self.qseq, self.args.base_per_pixel));
         if self.args.split_plot {
             for bin in bin.split() {
-                let tile = bin.into_tile();
+                let tile = bin.into_tile(self.args.extract_range_from_name);
                 self.plot(&tile);
             }
         } else {
-            let tile = bin.into_tile();
+            let tile = bin.into_tile(self.args.extract_range_from_name);
             self.plot(&tile);
         }
     }

@@ -26,6 +26,20 @@ impl Seq {
     pub fn to_path_string(&self) -> String {
         format!("{}_{}_{}", self.name, self.range.start, self.range.end)
     }
+
+    pub fn to_range_extracted(&self) -> Seq {
+        if let Some((chr, range)) = self.name.split_once(':') {
+            if let Some((start, end)) = range.split_once('-') {
+                if let (Some(start), Some(end)) = (start.parse::<usize>().ok(), end.parse::<usize>().ok()) {
+                    return Seq {
+                        name: chr.to_string(),
+                        range: start..end,
+                    };
+                }
+            }
+        }
+        return self.clone();
+    }
 }
 
 impl fmt::Display for Seq {
