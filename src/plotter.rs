@@ -3,6 +3,7 @@
 // @brief dotplot plotter
 
 use crate::block::{Block, BlockTile};
+use crate::layout::{Layout, LayoutElem, LayoutMargin, StructuredDrawingArea};
 use crate::seq::Seq;
 use anyhow::{Result, anyhow};
 use plotters::coord::Shift;
@@ -10,7 +11,6 @@ use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;
 use plotters::style::text_anchor::{HPos, Pos, VPos};
 use plotters_backend::{BackendStyle, DrawingErrorKind};
-use std::collections::HashMap;
 use std::ops::Range;
 
 #[derive(Debug)]
@@ -82,201 +82,6 @@ impl Breakpoints {
 
     fn segments(&self) -> usize {
         self.v.len() - 1
-    }
-}
-
-struct LayoutMargin {
-    left: u32,
-    right: u32,
-    top: u32,
-    bottom: u32,
-}
-
-impl LayoutMargin {
-    fn new(left: u32, right: u32, top: u32, bottom: u32) -> LayoutMargin {
-        LayoutMargin { left, right, top, bottom }
-    }
-
-    fn uniform(margin: u32) -> LayoutMargin {
-        LayoutMargin {
-            left: margin,
-            right: margin,
-            top: margin,
-            bottom: margin,
-        }
-    }
-}
-
-enum LayoutElem {
-    Rect(String, u32, u32),
-    Horizontal(String, Vec<LayoutElem>),
-    Vertical(String, Vec<LayoutElem>),
-    Margined(String, LayoutMargin, Box<LayoutElem>),
-}
-
-impl LayoutElem {
-    fn get_dim(&self) -> (u32, u32) {
-        match self {
-            LayoutElem::Rect(_, w, h) => (*w, *h),
-            LayoutElem::Horizontal(_, elems) => elems
-                .iter()
-                .map(|x| x.get_dim())
-                .fold((0, 0), |acc, (w, h)| (acc.0 + w, acc.1.max(h))),
-            LayoutElem::Vertical(_, elems) => elems
-                .iter()
-                .map(|x| x.get_dim())
-                .fold((0, 0), |acc, (w, h)| (acc.0.max(w), acc.1 + h)),
-            LayoutElem::Margined(_, margin, elem) => {
-                let (w, h) = elem.get_dim();
-                (w + margin.left + margin.right, h + margin.top + margin.bottom)
-            }
-        }
-    }
-
-    fn get_anchors(&self) -> (Vec<u32>, Vec<u32>) {
-        match self {
-            LayoutElem::Rect(_, w, h) => (vec![0, *w], vec![0, *h]),
-            LayoutElem::Horizontal(_, elems) => {
-                let mut v = vec![0];
-                let mut w_acc = 0;
-                let mut h_max = 0;
-                for elem in elems.iter() {
-                    let (w, h) = elem.get_dim();
-                    w_acc += w;
-                    v.push(w_acc);
-                    h_max = h_max.max(h);
-                }
-                (v, vec![0, h_max])
-            }
-            LayoutElem::Vertical(_, elems) => {
-                let mut v = vec![0];
-                let mut w_max = 0;
-                let mut h_acc = 0;
-                for elem in elems.iter() {
-                    let (w, h) = elem.get_dim();
-                    h_acc += h;
-                    v.push(h_acc);
-                    w_max = w_max.max(w);
-                }
-                (vec![0, w_max], v)
-            }
-            LayoutElem::Margined(_, margin, elem) => {
-                let (w, h) = elem.get_dim();
-                (
-                    vec![0, margin.left, margin.left + w, margin.left + w + margin.right],
-                    vec![0, margin.top, margin.top + h, margin.top + h + margin.bottom],
-                )
-            }
-        }
-    }
-
-    fn get_breakpoints(&self) -> (Vec<u32>, Vec<u32>) {
-        let (w, h) = self.get_anchors();
-        assert!(w.len() >= 2 && h.len() >= 2);
-
-        (w[1..w.len() - 1].to_vec(), h[1..h.len() - 1].to_vec())
-    }
-}
-
-struct StructuredDrawingArea<'a> {
-    areas: Vec<DrawingArea<BitMapBackend<'a>, Shift>>,
-    index: HashMap<String, usize>,
-}
-
-impl<'a> StructuredDrawingArea<'a> {
-    const MARGIN_TAGS: [&'static str; 9] = [
-        "left-top",
-        "top",
-        "right-top",
-        "left",
-        "center",
-        "right",
-        "left-bottom",
-        "bottom",
-        "right-bottom",
-    ];
-
-    fn append_key(&mut self, key: &str) -> Result<()> {
-        if self.index.contains_key(key) {
-            return Err(anyhow!("duplicate name: {key}"));
-        }
-        self.index.insert(key.to_string(), self.areas.len() - 1);
-        Ok(())
-    }
-
-    fn append_elem(&mut self, parent_key: &str, parent_area: &DrawingArea<BitMapBackend<'a>, Shift>, elem: &LayoutElem) -> Result<()> {
-        let (wbrk, hbrk) = elem.get_breakpoints();
-        let areas = parent_area.split_by_breakpoints(&wbrk, &hbrk);
-        match elem {
-            LayoutElem::Rect(name, _, _) => {
-                self.areas.push(areas[0].clone());
-
-                let key = format!("{parent_key}.{name}");
-                self.append_key(&key)?;
-            }
-            LayoutElem::Horizontal(name, elems) => {
-                assert!(hbrk.is_empty());
-                for (i, (elem, area)) in elems.iter().zip(areas.iter()).enumerate() {
-                    self.areas.push(area.clone());
-
-                    let key = format!("{parent_key}.{name}[{i}]");
-                    self.append_key(&key)?;
-                    self.append_elem(&key, area, elem)?;
-                }
-            }
-            LayoutElem::Vertical(name, elems) => {
-                assert!(wbrk.is_empty());
-                for (i, (elem, area)) in elems.iter().zip(areas.iter()).enumerate() {
-                    self.areas.push(area.clone());
-
-                    let key = format!("{parent_key}.{name}[{i}]");
-                    self.append_key(&key)?;
-                    self.append_elem(&key, area, elem)?;
-                }
-            }
-            LayoutElem::Margined(name, _, elem) => {
-                assert!(wbrk.len() == 2 && hbrk.len() == 2);
-                for (i, area) in areas.iter().enumerate() {
-                    self.areas.push(area.clone());
-
-                    let tag = Self::MARGIN_TAGS[i];
-                    let key = format!("{parent_key}.{name}[{tag}]");
-                    self.append_key(&key)?;
-                    if i == 4 {
-                        self.append_elem(&key, area, elem)?;
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn from_layout(root_elem: &LayoutElem, name: &'a str) -> Result<StructuredDrawingArea<'a>> {
-        let mut s = StructuredDrawingArea {
-            areas: Vec::new(),
-            index: HashMap::new(),
-        };
-
-        let root_area = BitMapBackend::new(name, root_elem.get_dim()).into_drawing_area();
-        root_area.fill(&WHITE)?;
-
-        s.areas.push(root_area.clone());
-        s.append_key(".")?;
-        s.append_elem("", &root_area, root_elem)?;
-        Ok(s)
-    }
-
-    fn get_area(&self, key: &str) -> Result<&DrawingArea<BitMapBackend<'a>, Shift>> {
-        if let Some(&i) = self.index.get(key) {
-            Ok(&self.areas[i])
-        } else {
-            Err(anyhow!("area not found: {}", key))
-        }
-    }
-
-    fn present(&self) -> Result<()> {
-        self.areas[0].present()?;
-        Ok(())
     }
 }
 
@@ -827,40 +632,47 @@ impl<'a> Plotter<'a> {
         );
         let brks = (Breakpoints::from_pixels(&pixels.0), Breakpoints::from_pixels(&pixels.1));
 
-        let layout = LayoutElem::Margined(
-            "root".to_string(),
-            LayoutMargin::uniform(self.c.margin as u32),
-            Box::new(LayoutElem::Vertical(
-                "stack".to_string(),
-                vec![
-                    LayoutElem::Margined(
-                        "legend".to_string(),
-                        LayoutMargin::new(self.c.legend_left_margin as u32, 0, 0, self.c.legend_bottom_margin as u32),
-                        Box::new(LayoutElem::Horizontal(
-                            "stack".to_string(),
-                            vec![
-                                LayoutElem::Rect(
-                                    "length_scale".to_string(),
-                                    self.c.length_scale_width as u32,
-                                    self.c.length_scale_height as u32,
-                                ),
-                                LayoutElem::Rect(
-                                    "color_scale".to_string(),
-                                    self.c.color_scale_width as u32,
-                                    self.c.color_scale_height as u32,
-                                ),
+        let layout = Layout(LayoutElem::Margined {
+            id: "root".to_string(),
+            margin: LayoutMargin::uniform(self.c.margin as u32),
+            inner: Box::new(LayoutElem::Vertical {
+                id: "stack".to_string(),
+                inner: vec![
+                    LayoutElem::Margined {
+                        id: "legend".to_string(),
+                        margin: LayoutMargin::new(self.c.legend_left_margin as u32, 0, 0, self.c.legend_bottom_margin as u32),
+                        inner: Box::new(LayoutElem::Horizontal {
+                            id: "stack".to_string(),
+                            inner: vec![
+                                LayoutElem::Rect {
+                                    id: "length_scale".to_string(),
+                                    width: self.c.length_scale_width as u32,
+                                    height: self.c.length_scale_height as u32,
+                                },
+                                LayoutElem::Rect {
+                                    id: "color_scale".to_string(),
+                                    width: self.c.color_scale_width as u32,
+                                    height: self.c.color_scale_height as u32,
+                                },
                             ],
-                        )),
-                    ),
-                    LayoutElem::Margined(
-                        "blocks_with_label".to_string(),
-                        LayoutMargin::new(self.c.y_label_area_width as u32, 0, 0, self.c.x_label_area_height as u32),
-                        Box::new(LayoutElem::Rect("blocks".to_string(), brks.0.pixels(), brks.1.pixels())),
-                    ),
+                        }),
+                    },
+                    LayoutElem::Margined {
+                        id: "blocks_with_label".to_string(),
+                        margin: LayoutMargin::new(self.c.y_label_area_width as u32, 0, 0, self.c.x_label_area_height as u32),
+                        inner: Box::new(LayoutElem::Rect {
+                            id: "blocks".to_string(),
+                            width: brks.0.pixels(),
+                            height: brks.1.pixels(),
+                        }),
+                    },
                 ],
-            )),
-        );
-        let areas = StructuredDrawingArea::from_layout(&layout, name)?;
+            }),
+        });
+        let serialized = serde_yaml::to_string(&layout).unwrap();
+        println!("serialized = {}", serialized);
+
+        let areas = StructuredDrawingArea::from_layout(&layout.0, name)?;
 
         self.draw_tile(areas.get_area(".root[center].stack[1].blocks_with_label[center]")?, tile, &brks)?;
         self.draw_ylabel(

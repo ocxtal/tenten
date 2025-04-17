@@ -1,5 +1,6 @@
 mod block;
 mod eval;
+mod layout;
 mod parser;
 mod plotter;
 mod seq;
