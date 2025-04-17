@@ -187,7 +187,9 @@ where
         let pos = pos.next().unwrap();
         for (y, line) in self.block.cnt.chunks(self.block.width).rev().enumerate() {
             for (x, cnt) in line.iter().enumerate() {
-                let c = std::cmp::min(self.color_map.get_color(&[0, 1], cnt[0]), self.color_map.get_color(&[0, 2], cnt[1]));
+                let cf = self.color_map.get_color(&[0, 1], cnt[0]);
+                let cr = self.color_map.get_color(&[0, 2], cnt[1]);
+                let c = (cf.0.min(cr.0), cf.1.min(cr.1), cf.2.min(cr.2));
                 backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), RGBColor(c.0, c.1, c.2).color())?;
             }
         }
@@ -672,7 +674,7 @@ impl<'a> Plotter<'a> {
         let serialized = serde_yaml::to_string(&layout).unwrap();
         println!("serialized = {}", serialized);
 
-        let areas = StructuredDrawingArea::from_layout(&layout.0, name)?;
+        let areas = StructuredDrawingArea::from_layout(&layout, name)?;
 
         self.draw_tile(areas.get_area(".root[center].stack[1].blocks_with_label[center]")?, tile, &brks)?;
         self.draw_ylabel(

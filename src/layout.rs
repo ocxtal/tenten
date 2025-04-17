@@ -35,10 +35,13 @@ impl LayoutMargin {
 pub enum LayoutElem {
     #[serde(rename = "rect")]
     Rect { id: String, width: u32, height: u32 },
+
     #[serde(rename = "horizontal")]
     Horizontal { id: String, inner: Vec<LayoutElem> },
+
     #[serde(rename = "vertical")]
     Vertical { id: String, inner: Vec<LayoutElem> },
+
     #[serde(rename = "margined")]
     Margined {
         id: String,
@@ -114,6 +117,35 @@ impl LayoutElem {
 
         (w[1..w.len() - 1].to_vec(), h[1..h.len() - 1].to_vec())
     }
+
+    pub fn get_id(&self) -> &str {
+        match self {
+            LayoutElem::Rect { id, .. } => id,
+            LayoutElem::Horizontal { id, .. } => id,
+            LayoutElem::Vertical { id, .. } => id,
+            LayoutElem::Margined { id, .. } => id,
+        }
+    }
+
+    fn get_node_mut(&mut self, path: &str) -> Option<&mut LayoutElem> {
+        if path == self.get_id() {
+            return Some(self);
+        }
+
+        let mut path = path.splitn(2, '.');
+        if path.next()? == self.get_id() {
+            return None;
+        }
+
+        let path = path.next().unwrap_or("");
+        match self {
+            LayoutElem::Rect { .. } => None,
+            LayoutElem::Horizontal { inner, .. } | LayoutElem::Vertical { inner, .. } => {
+                inner.iter_mut().fold(None, |acc, x| acc.or(x.get_node_mut(path)))
+            }
+            LayoutElem::Margined { inner, .. } => inner.as_mut().get_node_mut(path),
+        }
+    }
 }
 
 pub struct StructuredDrawingArea<'a> {
@@ -142,65 +174,52 @@ impl<'a> StructuredDrawingArea<'a> {
         Ok(())
     }
 
-    fn append_elem(&mut self, parent_key: &str, parent_area: &DrawingArea<BitMapBackend<'a>, Shift>, inner: &LayoutElem) -> Result<()> {
+    fn append_elem(
+        &mut self,
+        parent_key: &str,
+        parent_area: &DrawingArea<BitMapBackend<'a>, Shift>,
+        inner: Option<&LayoutElem>,
+    ) -> Result<()> {
+        if self.index.contains_key(parent_key) {
+            return Err(anyhow!("duplicate id: {parent_key}"));
+        }
+        self.areas.push(parent_area.clone());
+        self.index.insert(parent_key.to_string(), self.areas.len() - 1);
+
+        if inner.is_none() {
+            return Ok(());
+        }
+        let inner = inner.unwrap();
         let (wbrk, hbrk) = inner.get_breakpoints();
         let areas = parent_area.split_by_breakpoints(&wbrk, &hbrk);
         match inner {
             LayoutElem::Rect { id, .. } => {
-                self.areas.push(areas[0].clone());
-
-                let key = format!("{parent_key}.{id}");
-                self.append_key(&key)?;
+                self.append_elem(&format!("{parent_key}.{id}"), &areas[0], None)?;
             }
-            LayoutElem::Horizontal { id, inner } => {
-                assert!(hbrk.is_empty());
+            LayoutElem::Horizontal { id, inner } | LayoutElem::Vertical { id, inner } => {
                 for (i, (inner, area)) in inner.iter().zip(areas.iter()).enumerate() {
-                    self.areas.push(area.clone());
-
-                    let key = format!("{parent_key}.{id}[{i}]");
-                    self.append_key(&key)?;
-                    self.append_elem(&key, area, inner)?;
-                }
-            }
-            LayoutElem::Vertical { id, inner } => {
-                assert!(wbrk.is_empty());
-                for (i, (inner, area)) in inner.iter().zip(areas.iter()).enumerate() {
-                    self.areas.push(area.clone());
-
-                    let key = format!("{parent_key}.{id}[{i}]");
-                    self.append_key(&key)?;
-                    self.append_elem(&key, area, inner)?;
+                    self.append_elem(&format!("{parent_key}.{id}[{i}]"), area, Some(inner))?;
                 }
             }
             LayoutElem::Margined { id, inner, .. } => {
-                assert!(wbrk.len() == 2 && hbrk.len() == 2);
                 for (i, area) in areas.iter().enumerate() {
-                    self.areas.push(area.clone());
-
                     let tag = Self::MARGIN_TAGS[i];
-                    let key = format!("{parent_key}.{id}[{tag}]");
-                    self.append_key(&key)?;
-                    if i == 4 {
-                        self.append_elem(&key, area, inner)?;
-                    }
+                    let inner = if i == 4 { Some(&**inner) } else { None };
+                    self.append_elem(&format!("{parent_key}.{id}[{tag}]"), area, inner)?;
                 }
             }
         }
         Ok(())
     }
 
-    pub fn from_layout(root_elem: &LayoutElem, id: &'a str) -> Result<StructuredDrawingArea<'a>> {
+    pub fn from_layout(layout: &Layout, id: &'a str) -> Result<StructuredDrawingArea<'a>> {
         let mut s = StructuredDrawingArea {
             areas: Vec::new(),
             index: HashMap::new(),
         };
-
-        let root_area = BitMapBackend::new(id, root_elem.get_dim()).into_drawing_area();
+        let root_area = BitMapBackend::new(id, layout.0.get_dim()).into_drawing_area();
         root_area.fill(&WHITE)?;
-
-        s.areas.push(root_area.clone());
-        s.append_key(".")?;
-        s.append_elem("", &root_area, root_elem)?;
+        s.append_elem("", &root_area, Some(&layout.0))?;
         Ok(s)
     }
 
