@@ -5,7 +5,7 @@
 use crate::block::{Block, BlockTile};
 use crate::layout::{Layout, LayoutElem, LayoutMargin, StructuredDrawingArea};
 use crate::seq::Seq;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use plotters::coord::Shift;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;

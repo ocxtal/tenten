@@ -307,11 +307,11 @@ impl<'a> Context<'a> {
         let bin = std::mem::replace(&mut self.bin, BlockBin::new(&self.rseq, &self.qseq, self.args.base_per_pixel));
         if self.args.split_plot {
             for bin in bin.split() {
-                let tile = bin.into_tile(self.args.extract_range_from_name);
+                let tile = bin.into_tile();
                 self.plot(&tile);
             }
         } else {
-            let tile = bin.into_tile(self.args.extract_range_from_name);
+            let tile = bin.into_tile();
             self.plot(&tile);
         }
     }
