@@ -47,23 +47,6 @@ pub enum LayoutElem {
     Margined { margin: LayoutMargin, center: Box<LayoutElem> },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Layout(#[serde(with = "serde_yaml::with::singleton_map_recursive")] pub LayoutElem);
-
-impl Deref for Layout {
-    type Target = LayoutElem;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for Layout {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 impl LayoutElem {
     pub fn get_dim(&self) -> (u32, u32) {
         match self {
@@ -94,12 +77,10 @@ impl LayoutElem {
         }
     }
 
-    pub fn get_margin(&self) -> LayoutMargin {
+    pub fn get_margin(&self) -> Option<LayoutMargin> {
         match self {
-            LayoutElem::Rect { .. } => LayoutMargin::uniform(0),
-            LayoutElem::Horizontal { .. } => LayoutMargin::uniform(0),
-            LayoutElem::Vertical { .. } => LayoutMargin::uniform(0),
-            LayoutElem::Margined { margin, .. } => *margin,
+            LayoutElem::Margined { margin, .. } => Some(*margin),
+            _ => None,
         }
     }
 
@@ -110,50 +91,6 @@ impl LayoutElem {
             LayoutElem::Vertical { .. } => {}
             LayoutElem::Margined { margin: m, .. } => *m = margin,
         }
-    }
-
-    pub fn get_anchors(&self) -> (Vec<u32>, Vec<u32>) {
-        match self {
-            LayoutElem::Rect { width, height, .. } => (vec![0, *width], vec![0, *height]),
-            LayoutElem::Horizontal(inner) => {
-                let mut v = vec![0];
-                let mut w_acc = 0;
-                let mut h_max = 0;
-                for inner in inner.iter() {
-                    let (w, h) = inner.get_dim();
-                    w_acc += w;
-                    v.push(w_acc);
-                    h_max = h_max.max(h);
-                }
-                (v, vec![0, h_max])
-            }
-            LayoutElem::Vertical(inner) => {
-                let mut v = vec![0];
-                let mut w_max = 0;
-                let mut h_acc = 0;
-                for inner in inner.iter() {
-                    let (w, h) = inner.get_dim();
-                    h_acc += h;
-                    v.push(h_acc);
-                    w_max = w_max.max(w);
-                }
-                (vec![0, w_max], v)
-            }
-            LayoutElem::Margined { margin, center, .. } => {
-                let (w, h) = center.get_dim();
-                (
-                    vec![0, margin.left, margin.left + w, margin.left + w + margin.right],
-                    vec![0, margin.top, margin.top + h, margin.top + h + margin.bottom],
-                )
-            }
-        }
-    }
-
-    pub fn get_breakpoints(&self) -> (Vec<u32>, Vec<u32>) {
-        let (w, h) = self.get_anchors();
-        assert!(w.len() >= 2 && h.len() >= 2);
-
-        (w[1..w.len() - 1].to_vec(), h[1..h.len() - 1].to_vec())
     }
 
     pub fn get_id(&self) -> Option<&str> {
@@ -208,6 +145,67 @@ impl LayoutElem {
         } else {
             self.get_node_by_id_mut(path)
         }
+    }
+
+    pub fn get_anchors(&self) -> (Vec<u32>, Vec<u32>) {
+        match self {
+            LayoutElem::Rect { width, height, .. } => (vec![0, *width], vec![0, *height]),
+            LayoutElem::Horizontal(inner) => {
+                let mut v = vec![0];
+                let mut w_acc = 0;
+                let mut h_max = 0;
+                for inner in inner.iter() {
+                    let (w, h) = inner.get_dim();
+                    w_acc += w;
+                    v.push(w_acc);
+                    h_max = h_max.max(h);
+                }
+                (v, vec![0, h_max])
+            }
+            LayoutElem::Vertical(inner) => {
+                let mut v = vec![0];
+                let mut w_max = 0;
+                let mut h_acc = 0;
+                for inner in inner.iter() {
+                    let (w, h) = inner.get_dim();
+                    h_acc += h;
+                    v.push(h_acc);
+                    w_max = w_max.max(w);
+                }
+                (vec![0, w_max], v)
+            }
+            LayoutElem::Margined { margin, center, .. } => {
+                let (w, h) = center.get_dim();
+                (
+                    vec![0, margin.left, margin.left + w, margin.left + w + margin.right],
+                    vec![0, margin.top, margin.top + h, margin.top + h + margin.bottom],
+                )
+            }
+        }
+    }
+
+    pub fn get_breakpoints(&self) -> (Vec<u32>, Vec<u32>) {
+        let (w, h) = self.get_anchors();
+        assert!(w.len() >= 2 && h.len() >= 2);
+
+        (w[1..w.len() - 1].to_vec(), h[1..h.len() - 1].to_vec())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Layout(#[serde(with = "serde_yaml::with::singleton_map_recursive")] pub LayoutElem);
+
+impl Deref for Layout {
+    type Target = LayoutElem;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Layout {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 

@@ -678,17 +678,30 @@ impl<'a> Plotter<'a> {
                           id: color_scale
                           width: 150
                           height: 20
-                - margined:
-                    margin:
-                      left: 40
-                      right: 0
-                      top: 0
-                      bottom: 40
-                    center:
-                      rect:
-                        id: dotplot
-                        width: 0
-                        height: 0
+                - rect:
+                    id: dotplot
+                    width: 0
+                    height: 0
+        "};
+        let dotplot_layout = indoc::indoc! {"
+            margined:
+              margin:
+                left: 60
+                right: 0
+                top: 0
+                bottom: 40
+            metadata:
+
+              center:
+                horizontal:
+                - rect:
+                    id: blocks1
+                    width: 0
+                    height: 0
+                - rect:
+                    id: blocks2
+                    width: 0
+                    height: 0
         "};
 
         let mut layout = serde_yaml::from_str::<Layout>(layout)?;
