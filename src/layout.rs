@@ -163,7 +163,7 @@ impl LayoutElem {
         }
     }
 
-    pub fn get_node_mut_rec(&mut self, path: &str) -> Option<&mut LayoutElem> {
+    pub fn get_node_by_path_mut(&mut self, path: &str) -> Option<&mut LayoutElem> {
         if path.is_empty() {
             return Some(self);
         }
@@ -175,18 +175,18 @@ impl LayoutElem {
             LayoutElem::Rect { .. } => None,
             LayoutElem::Horizontal(inner) | LayoutElem::Vertical(inner) => {
                 let index = id.parse::<usize>().ok().filter(|&x| x < inner.len())?;
-                inner[index].get_node_mut_rec(rem)
+                inner[index].get_node_by_path_mut(rem)
             }
             LayoutElem::Margined { center, .. } => {
                 if id != "center" {
                     return None;
                 }
-                center.get_node_mut_rec(rem)
+                center.get_node_by_path_mut(rem)
             }
         }
     }
 
-    pub fn find_node_mut_rec(&mut self, id: &str) -> Option<&mut LayoutElem> {
+    pub fn get_node_by_id_mut(&mut self, id: &str) -> Option<&mut LayoutElem> {
         match self {
             LayoutElem::Rect { id: rect_id, .. } => {
                 if rect_id.as_deref() == Some(id) {
@@ -196,17 +196,17 @@ impl LayoutElem {
                 }
             }
             LayoutElem::Horizontal(inner) | LayoutElem::Vertical(inner) => {
-                inner.iter_mut().fold(None, |acc, inner| acc.or(inner.find_node_mut_rec(id)))
+                inner.iter_mut().fold(None, |acc, inner| acc.or(inner.get_node_by_id_mut(id)))
             }
-            LayoutElem::Margined { center, .. } => center.find_node_mut_rec(id),
+            LayoutElem::Margined { center, .. } => center.get_node_by_id_mut(id),
         }
     }
 
     pub fn get_node_mut(&mut self, path: &str) -> Option<&mut LayoutElem> {
         if let Some(path) = path.strip_prefix('.') {
-            self.get_node_mut_rec(path)
+            self.get_node_by_path_mut(path)
         } else {
-            self.find_node_mut_rec(path)
+            self.get_node_by_id_mut(path)
         }
     }
 }
@@ -230,7 +230,6 @@ impl<'a> StructuredDrawingArea<'a> {
     ];
 
     fn append_elem(&mut self, path: &str, area: &DrawingArea<BitMapBackend<'a>, Shift>, layout: Option<&LayoutElem>) -> Result<()> {
-        eprintln!("append_elem: {path:?}, {:?}, {layout:?}", area.get_pixel_range());
         if self.index.contains_key(path) {
             return Err(anyhow!("duplicate path: {path}"));
         }
