@@ -7,8 +7,9 @@ use plotters::coord::Shift;
 use plotters::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
 pub struct LayoutMargin {
     pub left: u32,
     pub right: u32,
@@ -34,50 +35,87 @@ impl LayoutMargin {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum LayoutElem {
     #[serde(rename = "rect")]
-    Rect { id: String, width: u32, height: u32 },
+    Rect { id: Option<String>, width: u32, height: u32 },
 
     #[serde(rename = "horizontal")]
-    Horizontal { id: String, inner: Vec<LayoutElem> },
+    Horizontal(Vec<LayoutElem>),
 
     #[serde(rename = "vertical")]
-    Vertical { id: String, inner: Vec<LayoutElem> },
+    Vertical(Vec<LayoutElem>),
 
     #[serde(rename = "margined")]
-    Margined {
-        id: String,
-
-        #[serde(flatten)]
-        margin: LayoutMargin,
-        inner: Box<LayoutElem>,
-    },
+    Margined { margin: LayoutMargin, center: Box<LayoutElem> },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Layout(#[serde(with = "serde_yaml::with::singleton_map_recursive")] pub LayoutElem);
 
+impl Deref for Layout {
+    type Target = LayoutElem;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Layout {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl LayoutElem {
     pub fn get_dim(&self) -> (u32, u32) {
         match self {
             LayoutElem::Rect { width, height, .. } => (*width, *height),
-            LayoutElem::Horizontal { inner, .. } => inner
+            LayoutElem::Horizontal(inner) => inner
                 .iter()
                 .map(|x| x.get_dim())
                 .fold((0, 0), |acc, (w, h)| (acc.0 + w, acc.1.max(h))),
-            LayoutElem::Vertical { inner, .. } => inner
+            LayoutElem::Vertical(inner) => inner
                 .iter()
                 .map(|x| x.get_dim())
                 .fold((0, 0), |acc, (w, h)| (acc.0.max(w), acc.1 + h)),
-            LayoutElem::Margined { margin, inner, .. } => {
-                let (w, h) = inner.get_dim();
+            LayoutElem::Margined { margin, center } => {
+                let (w, h) = center.get_dim();
                 (w + margin.left + margin.right, h + margin.top + margin.bottom)
             }
+        }
+    }
+
+    pub fn set_dim(&mut self, dim: (u32, u32)) -> Result<()> {
+        match self {
+            LayoutElem::Rect { width, height, .. } => {
+                *width = dim.0;
+                *height = dim.1;
+                Ok(())
+            }
+            _ => Err(anyhow!("set_dim is not supported for this layout element")),
+        }
+    }
+
+    pub fn get_margin(&self) -> LayoutMargin {
+        match self {
+            LayoutElem::Rect { .. } => LayoutMargin::uniform(0),
+            LayoutElem::Horizontal { .. } => LayoutMargin::uniform(0),
+            LayoutElem::Vertical { .. } => LayoutMargin::uniform(0),
+            LayoutElem::Margined { margin, .. } => *margin,
+        }
+    }
+
+    pub fn set_margin(&mut self, margin: LayoutMargin) {
+        match self {
+            LayoutElem::Rect { .. } => {}
+            LayoutElem::Horizontal { .. } => {}
+            LayoutElem::Vertical { .. } => {}
+            LayoutElem::Margined { margin: m, .. } => *m = margin,
         }
     }
 
     pub fn get_anchors(&self) -> (Vec<u32>, Vec<u32>) {
         match self {
             LayoutElem::Rect { width, height, .. } => (vec![0, *width], vec![0, *height]),
-            LayoutElem::Horizontal { inner, .. } => {
+            LayoutElem::Horizontal(inner) => {
                 let mut v = vec![0];
                 let mut w_acc = 0;
                 let mut h_max = 0;
@@ -89,7 +127,7 @@ impl LayoutElem {
                 }
                 (v, vec![0, h_max])
             }
-            LayoutElem::Vertical { inner, .. } => {
+            LayoutElem::Vertical(inner) => {
                 let mut v = vec![0];
                 let mut w_max = 0;
                 let mut h_acc = 0;
@@ -101,8 +139,8 @@ impl LayoutElem {
                 }
                 (vec![0, w_max], v)
             }
-            LayoutElem::Margined { margin, inner, .. } => {
-                let (w, h) = inner.get_dim();
+            LayoutElem::Margined { margin, center, .. } => {
+                let (w, h) = center.get_dim();
                 (
                     vec![0, margin.left, margin.left + w, margin.left + w + margin.right],
                     vec![0, margin.top, margin.top + h, margin.top + h + margin.bottom],
@@ -118,32 +156,57 @@ impl LayoutElem {
         (w[1..w.len() - 1].to_vec(), h[1..h.len() - 1].to_vec())
     }
 
-    pub fn get_id(&self) -> &str {
+    pub fn get_id(&self) -> Option<&str> {
         match self {
-            LayoutElem::Rect { id, .. } => id,
-            LayoutElem::Horizontal { id, .. } => id,
-            LayoutElem::Vertical { id, .. } => id,
-            LayoutElem::Margined { id, .. } => id,
+            LayoutElem::Rect { id, .. } => id.as_deref(),
+            _ => None,
         }
     }
 
-    fn get_node_mut(&mut self, path: &str) -> Option<&mut LayoutElem> {
-        if path == self.get_id() {
+    pub fn get_node_mut_rec(&mut self, path: &str) -> Option<&mut LayoutElem> {
+        if path.is_empty() {
             return Some(self);
         }
 
         let mut path = path.splitn(2, '.');
-        if path.next()? == self.get_id() {
-            return None;
-        }
-
-        let path = path.next().unwrap_or("");
+        let id = path.next()?;
+        let rem = path.next().unwrap_or("");
         match self {
             LayoutElem::Rect { .. } => None,
-            LayoutElem::Horizontal { inner, .. } | LayoutElem::Vertical { inner, .. } => {
-                inner.iter_mut().fold(None, |acc, x| acc.or(x.get_node_mut(path)))
+            LayoutElem::Horizontal(inner) | LayoutElem::Vertical(inner) => {
+                let index = id.parse::<usize>().ok().filter(|&x| x < inner.len())?;
+                inner[index].get_node_mut_rec(rem)
             }
-            LayoutElem::Margined { inner, .. } => inner.as_mut().get_node_mut(path),
+            LayoutElem::Margined { center, .. } => {
+                if id != "center" {
+                    return None;
+                }
+                center.get_node_mut_rec(rem)
+            }
+        }
+    }
+
+    pub fn find_node_mut_rec(&mut self, id: &str) -> Option<&mut LayoutElem> {
+        match self {
+            LayoutElem::Rect { id: rect_id, .. } => {
+                if rect_id.as_deref() == Some(id) {
+                    Some(self)
+                } else {
+                    None
+                }
+            }
+            LayoutElem::Horizontal(inner) | LayoutElem::Vertical(inner) => {
+                inner.iter_mut().fold(None, |acc, inner| acc.or(inner.find_node_mut_rec(id)))
+            }
+            LayoutElem::Margined { center, .. } => center.find_node_mut_rec(id),
+        }
+    }
+
+    pub fn get_node_mut(&mut self, path: &str) -> Option<&mut LayoutElem> {
+        if let Some(path) = path.strip_prefix('.') {
+            self.get_node_mut_rec(path)
+        } else {
+            self.find_node_mut_rec(path)
         }
     }
 }
@@ -155,69 +218,60 @@ pub struct StructuredDrawingArea<'a> {
 
 impl<'a> StructuredDrawingArea<'a> {
     const MARGIN_TAGS: [&'static str; 9] = [
-        "left-top",
+        "top-left",
         "top",
-        "right-top",
+        "top-right",
         "left",
         "center",
         "right",
-        "left-bottom",
+        "bottom-left",
         "bottom",
-        "right-bottom",
+        "bottom-right",
     ];
 
-    fn append_key(&mut self, key: &str) -> Result<()> {
-        if self.index.contains_key(key) {
-            return Err(anyhow!("duplicate id: {key}"));
+    fn append_elem(&mut self, path: &str, area: &DrawingArea<BitMapBackend<'a>, Shift>, layout: Option<&LayoutElem>) -> Result<()> {
+        eprintln!("append_elem: {path:?}, {:?}, {layout:?}", area.get_pixel_range());
+        if self.index.contains_key(path) {
+            return Err(anyhow!("duplicate path: {path}"));
         }
-        self.index.insert(key.to_string(), self.areas.len() - 1);
-        Ok(())
-    }
+        self.areas.push(area.clone());
+        self.index.insert(path.to_string(), self.areas.len() - 1);
 
-    fn append_elem(
-        &mut self,
-        parent_key: &str,
-        parent_area: &DrawingArea<BitMapBackend<'a>, Shift>,
-        inner: Option<&LayoutElem>,
-    ) -> Result<()> {
-        if self.index.contains_key(parent_key) {
-            return Err(anyhow!("duplicate id: {parent_key}"));
-        }
-        self.areas.push(parent_area.clone());
-        self.index.insert(parent_key.to_string(), self.areas.len() - 1);
-
-        if inner.is_none() {
+        if layout.is_none() {
             return Ok(());
         }
-        let inner = inner.unwrap();
-        let (wbrk, hbrk) = inner.get_breakpoints();
-        let areas = parent_area.split_by_breakpoints(&wbrk, &hbrk);
-        match inner {
+        let layout = layout.unwrap();
+        let (wbrk, hbrk) = layout.get_breakpoints();
+        let areas = area.split_by_breakpoints(&wbrk, &hbrk);
+        match layout {
             LayoutElem::Rect { id, .. } => {
-                self.append_elem(&format!("{parent_key}.{id}"), &areas[0], None)?;
-            }
-            LayoutElem::Horizontal { id, inner } | LayoutElem::Vertical { id, inner } => {
-                for (i, (inner, area)) in inner.iter().zip(areas.iter()).enumerate() {
-                    self.append_elem(&format!("{parent_key}.{id}[{i}]"), area, Some(inner))?;
+                if let Some(id) = id {
+                    self.areas.push(area.clone());
+                    self.index.insert(id.clone(), self.areas.len() - 1);
                 }
             }
-            LayoutElem::Margined { id, inner, .. } => {
+            LayoutElem::Horizontal(inner) | LayoutElem::Vertical(inner) => {
+                for (i, (inner, area)) in inner.iter().zip(areas.iter()).enumerate() {
+                    self.append_elem(&format!("{path}.{i}"), area, Some(inner))?;
+                }
+            }
+            LayoutElem::Margined { center, .. } => {
                 for (i, area) in areas.iter().enumerate() {
                     let tag = Self::MARGIN_TAGS[i];
-                    let inner = if i == 4 { Some(&**inner) } else { None };
-                    self.append_elem(&format!("{parent_key}.{id}[{tag}]"), area, inner)?;
+                    let center = if i == 4 { Some(&**center) } else { None };
+                    self.append_elem(&format!("{path}.{tag}"), area, center)?;
                 }
             }
         }
         Ok(())
     }
 
-    pub fn from_layout(layout: &Layout, id: &'a str) -> Result<StructuredDrawingArea<'a>> {
+    pub fn from_layout(layout: &Layout, name: &'a str) -> Result<StructuredDrawingArea<'a>> {
         let mut s = StructuredDrawingArea {
             areas: Vec::new(),
             index: HashMap::new(),
         };
-        let root_area = BitMapBackend::new(id, layout.0.get_dim()).into_drawing_area();
+        let root_area = BitMapBackend::new(name, layout.0.get_dim()).into_drawing_area();
         root_area.fill(&WHITE)?;
         s.append_elem("", &root_area, Some(&layout.0))?;
         Ok(s)

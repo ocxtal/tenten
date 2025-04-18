@@ -378,15 +378,7 @@ where
 pub struct PlotterConfig {
     margin: u32,
     spacer_thickness: u32,
-    x_label_area_height: u32,
-    y_label_area_width: u32,
-    legend_left_margin: u32,
-    legend_bottom_margin: u32,
-    color_scale_height: u32,
-    color_scale_width: u32,
     color_scale_length: u32,
-    length_scale_height: u32,
-    length_scale_width: u32,
     axes_thickness: u32,
     target_tick_pitch: u32,
     x_tick: TickConfig,
@@ -410,15 +402,7 @@ impl<'a> Plotter<'a> {
         let c = PlotterConfig {
             margin: 20,
             spacer_thickness: 1,
-            x_label_area_height: 40,
-            y_label_area_width: 40,
-            legend_left_margin: 40,
-            legend_bottom_margin: 10,
-            color_scale_height: 20,
-            color_scale_width: 150,
             color_scale_length: 100,
-            length_scale_height: 20,
-            length_scale_width: 150,
             axes_thickness: 1,
             target_tick_pitch: 25,
             x_tick: TickConfig {
@@ -634,64 +618,94 @@ impl<'a> Plotter<'a> {
         );
         let brks = (Breakpoints::from_pixels(&pixels.0), Breakpoints::from_pixels(&pixels.1));
 
-        let layout = Layout(LayoutElem::Margined {
-            id: "root".to_string(),
-            margin: LayoutMargin::uniform(self.c.margin as u32),
-            inner: Box::new(LayoutElem::Vertical {
-                id: "stack".to_string(),
-                inner: vec![
-                    LayoutElem::Margined {
-                        id: "legend".to_string(),
-                        margin: LayoutMargin::new(self.c.legend_left_margin as u32, 0, 0, self.c.legend_bottom_margin as u32),
-                        inner: Box::new(LayoutElem::Horizontal {
-                            id: "stack".to_string(),
-                            inner: vec![
-                                LayoutElem::Rect {
-                                    id: "length_scale".to_string(),
-                                    width: self.c.length_scale_width as u32,
-                                    height: self.c.length_scale_height as u32,
-                                },
-                                LayoutElem::Rect {
-                                    id: "color_scale".to_string(),
-                                    width: self.c.color_scale_width as u32,
-                                    height: self.c.color_scale_height as u32,
-                                },
-                            ],
-                        }),
+        let layout = Layout(LayoutElem::Vertical(vec![
+            LayoutElem::Margined {
+                margin: LayoutMargin::default(),
+                center: Box::new(LayoutElem::Horizontal(vec![
+                    LayoutElem::Rect {
+                        id: Some("blocks1".to_string()),
+                        width: 0,
+                        height: 0,
                     },
-                    LayoutElem::Margined {
-                        id: "blocks_with_label".to_string(),
-                        margin: LayoutMargin::new(self.c.y_label_area_width as u32, 0, 0, self.c.x_label_area_height as u32),
-                        inner: Box::new(LayoutElem::Rect {
-                            id: "blocks".to_string(),
-                            width: brks.0.pixels(),
-                            height: brks.1.pixels(),
-                        }),
+                    LayoutElem::Rect {
+                        id: Some("blocks2".to_string()),
+                        width: 0,
+                        height: 0,
                     },
-                ],
-            }),
-        });
-        let serialized = serde_yaml::to_string(&layout).unwrap();
+                ])),
+            },
+            LayoutElem::Margined {
+                margin: LayoutMargin::default(),
+                center: Box::new(LayoutElem::Horizontal(vec![
+                    LayoutElem::Rect {
+                        id: Some("length_scale".to_string()),
+                        width: 0,
+                        height: 0,
+                    },
+                    LayoutElem::Rect {
+                        id: Some("color_scale".to_string()),
+                        width: 0,
+                        height: 0,
+                    },
+                ])),
+            },
+        ]));
+        let yaml = serde_yaml::to_string(&layout)?;
+        eprintln!("yaml: {yaml}");
+
+        let layout = indoc::indoc! {"
+            margined:
+              margin:
+                left: 20
+                right: 20
+                top: 20
+                bottom: 20
+              center:
+                vertical:
+                - margined:
+                    margin:
+                      left: 40
+                      right: 0
+                      top: 0
+                      bottom: 10
+                    center:
+                      horizontal:
+                      - rect:
+                          id: length_scale
+                          width: 150
+                          height: 20
+                      - rect:
+                          id: color_scale
+                          width: 150
+                          height: 20
+                - margined:
+                    margin:
+                      left: 40
+                      right: 0
+                      top: 0
+                      bottom: 40
+                    center:
+                      rect:
+                        id: dotplot
+                        width: 0
+                        height: 0
+        "};
+
+        let mut layout = serde_yaml::from_str::<Layout>(layout)?;
+        let plot = layout.get_node_mut("dotplot").unwrap();
+        plot.set_dim((brks.0.pixels(), brks.1.pixels()))?;
+
+        let serialized = serde_yaml::to_string(&layout)?;
         println!("serialized = {}", serialized);
 
         let areas = StructuredDrawingArea::from_layout(&layout, name)?;
 
-        self.draw_tile(areas.get_area(".root[center].stack[1].blocks_with_label[center]")?, tile, &brks)?;
-        self.draw_ylabel(
-            areas.get_area(".root[center].stack[1].blocks_with_label[left]")?,
-            tile.vertical_seqs(),
-            &brks.1,
-            &pitch,
-        )?;
-        self.draw_xlabel(
-            areas.get_area(".root[center].stack[1].blocks_with_label[bottom]")?,
-            tile.horizontal_seqs(),
-            &brks.0,
-            &pitch,
-        )?;
-        // self.draw_origin(areas.get_area(".root[center].stack[1].blocks_with_label[left-bottom]")?)?;
-        self.draw_length_scale(areas.get_area(".root[center].stack[0].legend[center].stack[0].length_scale")?, tile)?;
-        self.draw_color_scale(areas.get_area(".root[center].stack[0].legend[center].stack[1].color_scale")?, tile)?;
+        self.draw_tile(areas.get_area(".center.1.center")?, tile, &brks)?;
+        self.draw_ylabel(areas.get_area(".center.1.left")?, tile.vertical_seqs(), &brks.1, &pitch)?;
+        self.draw_xlabel(areas.get_area(".center.1.bottom")?, tile.horizontal_seqs(), &brks.0, &pitch)?;
+        // self.draw_origin(areas.get_area(".center.1.left-bottom]")?)?;
+        self.draw_length_scale(areas.get_area("length_scale")?, tile)?;
+        self.draw_color_scale(areas.get_area("color_scale")?, tile)?;
         areas.present()?;
 
         Ok(())
