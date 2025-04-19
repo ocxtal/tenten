@@ -3,17 +3,24 @@
 // @brief dotplot plotter
 
 use crate::block::{Block, BlockTile};
-use crate::layout::{Layout, LayoutElem, LayoutMargin, StructuredDrawingArea};
+use crate::layout::{Layout, LayoutElem, LayoutMargin, RectAnchor, StructuredDrawingArea};
 use crate::seq::Seq;
 use anyhow::Result;
-use plotters::coord::Shift;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;
 use plotters::style::text_anchor::{HPos, Pos, VPos};
 use plotters_backend::{BackendStyle, DrawingErrorKind};
 use std::ops::Range;
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
+enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+#[derive(Clone, Debug)]
 struct Breakpoints {
     v: Vec<u32>, // first element is always zero; ignored when splitting plot plane
 }
@@ -31,9 +38,13 @@ impl Breakpoints {
         Breakpoints { v }
     }
 
-    fn as_slice(&self) -> &[u32] {
+    fn as_breakpoint_slice(&self) -> &[u32] {
         assert!(self.v.len() >= 2);
         &self.v[1..self.v.len() - 1]
+    }
+
+    fn as_anchor_slice(&self) -> &[u32] {
+        &self.v
     }
 
     // fn extend_slice(&mut self, v: &[u32]) {
@@ -85,71 +96,39 @@ impl Breakpoints {
     }
 }
 
-#[derive(Clone, Debug)]
-struct ColorMapConfig {
-    palette: Vec<(u8, u8, u8)>,
-    density: f64,
-    min_density: f64,
+#[derive(Copy, Clone, Debug)]
+pub struct ColorMap {
+    pub palette: [RGBColor; 2],
+    pub max_density: f64,
+    pub min_density: f64,
 }
 
-impl ColorMapConfig {
-    fn new(palette: &[(u8, u8, u8)], density: f64, min_density: f64) -> ColorMapConfig {
-        ColorMapConfig {
-            palette: palette.to_vec(),
-            density,
-            min_density,
-        }
-    }
-
-    fn to_color_map<'a>(&'a self, base_per_pixel: f64) -> ColorMap<'a> {
+impl ColorMap {
+    fn to_picker(&self, base_per_pixel: f64) -> ColorPicker {
         let expansion = (1000.0 / base_per_pixel).powf(2.0);
-        let target_count = self.density * expansion;
+        let max_count = self.max_density * expansion;
         let min_count = self.min_density * expansion;
-        eprintln!(
-            "expansion: {}, target_count: {}, {}, val: {}, {}",
-            expansion,
-            target_count,
-            target_count.log2(),
-            min_count,
-            min_count.log2()
-        );
-        ColorMap {
-            c: self,
+        ColorPicker {
+            palette: self.palette,
             expansion,
             offset: min_count.log2(),
-            scale: 128.0 / (target_count.log2() - min_count.log2()),
+            scale: 1.0 / (max_count.log2() - min_count.log2()),
         }
     }
 }
 
 #[derive(Clone, Debug)]
-struct ColorMap<'a> {
-    c: &'a ColorMapConfig,
+struct ColorPicker {
+    palette: [RGBColor; 2],
     expansion: f64,
     offset: f64,
     scale: f64,
 }
 
-impl ColorMap<'_> {
-    fn get_color(&self, palette_index: &[usize], val: u32) -> (u8, u8, u8) {
-        let min = self.c.palette[palette_index[0]];
-        let max = self.c.palette[palette_index[1]];
-
-        let blend = |min: (u8, u8, u8), max: (u8, u8, u8), val: u32| -> (u8, u8, u8) {
-            let r = (min.0 as u32 * (256 - val) + max.0 as u32 * val) / 256;
-            let g = (min.1 as u32 * (256 - val) + max.1 as u32 * val) / 256;
-            let b = (min.2 as u32 * (256 - val) + max.2 as u32 * val) / 256;
-
-            (r as u8, g as u8, b as u8)
-        };
-        let val = self.scale * ((val as f64).log2() - self.offset);
-        let val = (val as i32).clamp(0, 256) as u32;
-        blend(min, max, val)
-    }
-
-    fn get_rgb_color(&self, palette_index: &[usize], val: u32) -> RGBColor {
-        let (r, g, b) = self.get_color(palette_index, val);
-        RGBColor(r, g, b)
+impl ColorPicker {
+    fn get_color(&self, palette_index: usize, count: u32) -> RGBAColor {
+        let intensity = self.scale * ((self.expansion * count as f64).log2() - self.offset);
+        self.palette[palette_index].mix(intensity.clamp(0.0, 1.0))
     }
 }
 
@@ -157,12 +136,12 @@ impl ColorMap<'_> {
 #[derive(Debug)]
 struct DrawableBlock<'a> {
     block: &'a Block,
-    color_map: &'a ColorMap<'a>,
+    picker: &'a ColorPicker,
 }
 
 impl<'a> DrawableBlock<'a> {
-    fn new(block: &'a Block, color_map: &'a ColorMap) -> DrawableBlock<'a> {
-        DrawableBlock { block, color_map }
+    fn new(block: &'a Block, picker: &'a ColorPicker) -> DrawableBlock<'a> {
+        DrawableBlock { block, picker }
     }
 }
 
@@ -187,10 +166,11 @@ where
         let pos = pos.next().unwrap();
         for (y, line) in self.block.cnt.chunks(self.block.width).rev().enumerate() {
             for (x, cnt) in line.iter().enumerate() {
-                let cf = self.color_map.get_color(&[0, 1], cnt[0]);
-                let cr = self.color_map.get_color(&[0, 2], cnt[1]);
-                let c = (cf.0.min(cr.0), cf.1.min(cr.1), cf.2.min(cr.2));
-                backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), RGBColor(c.0, c.1, c.2).color())?;
+                let cf = self.picker.get_color(0, cnt[0]).color();
+                backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), cf)?;
+
+                let cr = self.picker.get_color(1, cnt[1]).color();
+                backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), cr)?;
             }
         }
         Ok(())
@@ -198,35 +178,17 @@ where
 }
 
 #[derive(Copy, Clone, Debug)]
-enum TickDirection {
-    Up,
-    Down,
-    Left,
-    Right,
-}
-
-#[derive(Copy, Clone, Debug)]
-struct TickPitch {
+pub struct TickPitch {
+    base_per_pixel: u32,
     label_period: u32,
     pitch_in_bases: u32,
     pixels_per_pitch: f64,
     subunit: u32,
 }
 
-#[derive(Clone)]
-struct Tick {
-    tick_start: (i32, i32),
-    tick_end: (i32, i32),
-    label_pos: (i32, i32),
-    label_anchor: Pos,
-    label_font_size: u32,
-    label: String,
-    show_label: bool,
-}
-
 impl TickPitch {
-    fn new(target_pixels: u32, base_per_pixel: u32) -> TickPitch {
-        let unit_bases = (target_pixels as f64 * base_per_pixel as f64).log(10.0);
+    pub fn new(desired_pitch_in_pixels: u32, base_per_pixel: u32) -> TickPitch {
+        let unit_bases = (desired_pitch_in_pixels as f64 * base_per_pixel as f64).log(10.0);
         let (f, c) = (unit_bases.fract(), unit_bases.floor());
         assert!(f <= 1.0 && c >= 1.0);
 
@@ -239,6 +201,7 @@ impl TickPitch {
         };
         let subunit = 10u32.pow(pitch_in_bases.ilog10() / 3 * 3);
         TickPitch {
+            base_per_pixel,
             label_period,
             pitch_in_bases: pitch_in_bases as u32,
             pixels_per_pitch: pitch_in_bases as f64 / base_per_pixel as f64,
@@ -246,98 +209,149 @@ impl TickPitch {
         }
     }
 
-    fn to_ticks<F>(&self, root: (i32, i32), range: &Range<usize>, config: &TickConfig, label_formatter: F) -> Vec<Tick>
+    pub fn get_subunit_text(&self) -> &'static str {
+        ["", "k", "M", "G", "T", "P", "E", "Z", "Y"][self.subunit.ilog(10) as usize / 3]
+    }
+}
+
+#[derive(Clone)]
+pub struct TickAppearance<'a> {
+    pub large_tick_length: u32,
+    pub small_tick_length: u32,
+    pub label_setback: u32,
+    pub label_style: TextStyle<'a>,
+    pub fit_in_box: bool,
+}
+
+#[derive(Clone)]
+struct Tick<'a> {
+    tick_start: (i32, i32),
+    tick_end: (i32, i32),
+    label_pos: (i32, i32),
+    label_anchor: Pos,
+    label_style: TextStyle<'a>,
+    label: String,
+    show_label: bool,
+}
+
+impl<'a> Tick<'a> {
+    fn build_vec<F>(
+        root: (i32, i32),
+        range: &Range<usize>,
+        axis_direction: Direction,
+        tick_direction: Direction,
+        pitch: &'_ TickPitch,
+        app: &'a TickAppearance,
+        label_formatter: F,
+    ) -> Vec<Tick<'a>>
     where
         F: Fn(u32, u32) -> String,
     {
         let range = range.start as u32..range.end as u32;
-        let base_to_pixel = self.pixels_per_pitch / self.pitch_in_bases as f64;
-        let to_pixel = |i: u32, extra: i32| ((i - range.start) as f64 * base_to_pixel) as i32 + extra;
-        let fmt = |i: u32| label_formatter(i, self.subunit);
+        let base_to_pixel = pitch.pixels_per_pitch / pitch.pitch_in_bases as f64;
+        let build = |i: u32, is_large: bool, show_label: bool| {
+            Self::build(
+                root,
+                ((i - range.start) as f64 * base_to_pixel) as i32,
+                tick_direction,
+                axis_direction,
+                (i == range.start, i == range.end),
+                is_large,
+                app,
+                label_formatter(i, pitch.subunit),
+                show_label,
+            )
+        };
 
         let mut labels = Vec::new();
-        labels.push(config.build_tick(root, to_pixel(range.start, -1), (true, false), true, fmt(range.start), true));
+        labels.push(build(range.start, true, true));
 
         let mut i = range.start;
         loop {
-            let next_n = (i + 1).div_ceil(self.pitch_in_bases);
-            i = next_n * self.pitch_in_bases;
+            let next_n = (i + 1).div_ceil(pitch.pitch_in_bases);
+            i = next_n * pitch.pitch_in_bases;
             if i >= range.end {
                 break;
             }
 
-            let thresh = self.pitch_in_bases * 2;
+            let thresh = pitch.pitch_in_bases * 2;
             let too_close_to_end = i <= range.start + thresh || i + thresh >= range.end;
-            let is_large = next_n % self.label_period == 0;
+            let is_large = next_n % pitch.label_period == 0;
             let show_label = is_large && !too_close_to_end;
-            labels.push(config.build_tick(root, to_pixel(i, 0), (false, false), is_large, fmt(i), show_label));
+            labels.push(build(i, is_large, show_label));
         }
-
-        labels.push(config.build_tick(root, to_pixel(range.end, 1), (false, true), true, fmt(range.end), true));
+        labels.push(build(range.end, true, true));
         labels
     }
-}
 
-#[derive(Copy, Clone, Debug)]
-struct TickConfig {
-    len: (u32, u32),
-    label_setback: u32,
-    label_font_size: u32,
-    tick_direction: TickDirection,
-    axis_direction: TickDirection,
-}
-
-impl TickConfig {
-    fn build_tick(&self, root: (i32, i32), pos: i32, is_end: (bool, bool), is_large: bool, label: String, show_label: bool) -> Tick {
-        let pos = match self.axis_direction {
-            TickDirection::Up => (root.0, root.1 - pos),
-            TickDirection::Down => (root.0, root.1 + pos),
-            TickDirection::Left => (root.0 - pos, root.1),
-            TickDirection::Right => (root.0 + pos, root.1),
+    fn build(
+        root: (i32, i32),
+        pos: i32,
+        tick_direction: Direction,
+        axis_direction: Direction,
+        is_end: (bool, bool),
+        is_large: bool,
+        app: &'a TickAppearance,
+        label: String,
+        show_label: bool,
+    ) -> Tick<'a> {
+        let pos = if is_end.0 {
+            pos - 1
+        } else if is_end.1 {
+            pos + 1
+        } else {
+            pos
         };
-        let len = if is_large { self.len.0 } else { self.len.1 } as i32;
-        let (tick_start, tick_end) = match self.tick_direction {
-            TickDirection::Up => ((pos.0, pos.1 - len), (pos.0, pos.1)),
-            TickDirection::Down => ((pos.0, pos.1), (pos.0, pos.1 + len)),
-            TickDirection::Left => ((pos.0 - len, pos.1), (pos.0, pos.1)),
-            TickDirection::Right => ((pos.0, pos.1), (pos.0 + len, pos.1)),
+        let pos = match axis_direction {
+            Direction::Up => (root.0, root.1 - pos),
+            Direction::Down => (root.0, root.1 + pos),
+            Direction::Left => (root.0 - pos, root.1),
+            Direction::Right => (root.0 + pos, root.1),
+        };
+        let len = if is_large { app.large_tick_length } else { app.small_tick_length } as i32;
+        let (tick_start, tick_end) = match tick_direction {
+            Direction::Up => ((pos.0, pos.1 - len), (pos.0, pos.1)),
+            Direction::Down => ((pos.0, pos.1), (pos.0, pos.1 + len)),
+            Direction::Left => ((pos.0 - len, pos.1), (pos.0, pos.1)),
+            Direction::Right => ((pos.0, pos.1), (pos.0 + len, pos.1)),
         };
 
-        let setback = self.label_setback as i32;
-        let end_index = match (is_end.1, is_end.0) {
-            (false, true) | (true, true) => 0,
-            (false, false) => 1,
-            (true, false) => 2,
+        let setback = app.label_setback as i32;
+        let end_index = match (app.fit_in_box, is_end.1, is_end.0) {
+            (false, _, _) => 1,
+            (_, false, true) | (_, true, true) => 0,
+            (_, false, false) => 1,
+            (_, true, false) => 2,
         };
         let x_anchors = [HPos::Left, HPos::Center, HPos::Right];
         let y_anchors = [VPos::Bottom, VPos::Center, VPos::Top];
-        let shift = (self.label_font_size as f64 / 8.0) as i32;
+        let shift = (app.label_style.font.get_size() / 8.0) as i32;
         let shifts = [shift, 0, -shift];
-        let (label_pos, label_anchor) = match self.tick_direction {
-            TickDirection::Up => (
+        let (label_pos, label_anchor) = match tick_direction {
+            Direction::Up => (
                 (pos.0 + shifts[end_index], pos.1 - setback),
                 Pos::new(x_anchors[end_index], VPos::Bottom),
             ),
-            TickDirection::Down => (
+            Direction::Down => (
                 (pos.0 + shifts[end_index], pos.1 + setback),
                 Pos::new(x_anchors[end_index], VPos::Top),
             ),
-            TickDirection::Left => ((pos.0 - setback, pos.1), Pos::new(HPos::Right, y_anchors[end_index])),
-            TickDirection::Right => ((pos.0 + setback, pos.1), Pos::new(HPos::Left, y_anchors[end_index])),
+            Direction::Left => ((pos.0 - setback, pos.1), Pos::new(HPos::Right, y_anchors[end_index])),
+            Direction::Right => ((pos.0 + setback, pos.1), Pos::new(HPos::Left, y_anchors[end_index])),
         };
         Tick {
             tick_start,
             tick_end,
             label_pos,
             label_anchor,
-            label_font_size: self.label_font_size,
+            label_style: app.label_style.clone(),
             label,
             show_label,
         }
     }
 }
 
-impl<'a> PointCollection<'a, (i32, i32)> for &'a Tick {
+impl<'a> PointCollection<'a, (i32, i32)> for &'a Tick<'_> {
     type Point = &'a (i32, i32);
     type IntoIter = std::iter::Once<&'a (i32, i32)>;
 
@@ -346,7 +360,7 @@ impl<'a> PointCollection<'a, (i32, i32)> for &'a Tick {
     }
 }
 
-impl<DB> Drawable<DB> for Tick
+impl<DB> Drawable<DB> for Tick<'_>
 where
     DB: DrawingBackend,
 {
@@ -365,9 +379,7 @@ where
         let end = (pos.0 + self.tick_end.0, pos.1 + self.tick_end.1);
         backend.draw_line(start, end, &style)?;
         if self.show_label {
-            let style = &TextStyle::from(("sans-serif", self.label_font_size as u32).into_font())
-                .color(&BLACK)
-                .pos(self.label_anchor);
+            let style = &self.label_style.pos(self.label_anchor);
             let pos = (pos.0 + self.label_pos.0, pos.1 + self.label_pos.1);
             backend.draw_text(&self.label, style, pos)?;
         }
@@ -375,352 +387,644 @@ where
     }
 }
 
-pub struct PlotterConfig {
-    margin: u32,
-    spacer_thickness: u32,
-    color_scale_length: u32,
-    axes_thickness: u32,
-    target_tick_pitch: u32,
-    x_tick: TickConfig,
-    y_tick: TickConfig,
-    x_seq_name_setback: u32,
-    y_seq_name_setback: u32,
-    seq_name_font_size: u32,
+#[derive(Clone)]
+pub struct LengthScale<'a> {
+    len: u32,
+    thickness: u32,
+    pitch: TickPitch,
+    app: &'a TickAppearance<'a>,
 }
 
-pub struct Plotter<'a> {
-    color_map_config: ColorMapConfig,
-    c: PlotterConfig,
-    x_seq_name_style: TextStyle<'a>,
-    y_seq_name_style: TextStyle<'a>,
+impl<'a> LengthScale<'a> {
+    fn new(desired_length: u32, axis_thickness: u32, tick_pitch: &'_ TickPitch, tick_appearance: &'a TickAppearance) -> LengthScale<'a> {
+        let len = (tick_pitch.label_period * tick_pitch.pitch_in_bases).div_ceil(desired_length) * desired_length;
+        LengthScale {
+            len,
+            thickness: axis_thickness,
+            pitch: tick_pitch.clone(),
+            app: tick_appearance,
+        }
+    }
+
+    fn get_dim(&self) -> (u32, u32) {
+        let w = self.len + 1;
+        let h = self.app.large_tick_length + self.thickness + self.app.label_setback + self.app.label_style.font.get_size() as u32;
+        (w, h)
+    }
 }
 
-impl<'a> Plotter<'a> {
-    pub fn new(density: f64, min_density: f64, swap_plot_axes: bool) -> Plotter<'a> {
-        assert!(!swap_plot_axes);
+impl<'a> PointCollection<'a, (i32, i32)> for &'a LengthScale<'_> {
+    type Point = &'a (i32, i32);
+    type IntoIter = std::iter::Once<&'a (i32, i32)>;
 
-        let c = PlotterConfig {
-            margin: 20,
-            spacer_thickness: 1,
-            color_scale_length: 100,
-            axes_thickness: 1,
-            target_tick_pitch: 25,
-            x_tick: TickConfig {
-                len: (3, 1),
-                label_setback: 5,
-                label_font_size: 12,
-                tick_direction: TickDirection::Down,
-                axis_direction: TickDirection::Right,
-            },
-            y_tick: TickConfig {
-                len: (3, 1),
-                label_setback: 5,
-                label_font_size: 12,
-                tick_direction: TickDirection::Left,
-                axis_direction: TickDirection::Up,
-            },
-            x_seq_name_setback: 25,
-            y_seq_name_setback: 35,
-            seq_name_font_size: 12,
-        };
-        let color_map_config = ColorMapConfig::new(&[(255, 255, 255), (255, 0, 64), (0, 64, 255)], density, min_density);
-        let seq_name_style = TextStyle::from(("sans-serif", c.seq_name_font_size).into_font()).color(&BLACK);
-        let x_seq_name_style = seq_name_style.pos(Pos::new(HPos::Center, VPos::Top));
-        let y_seq_name_style = seq_name_style
-            .transform(FontTransform::Rotate270)
-            .pos(Pos::new(HPos::Center, VPos::Bottom));
-        Plotter {
-            color_map_config,
-            c,
-            x_seq_name_style,
-            y_seq_name_style,
-        }
+    fn point_iter(self) -> Self::IntoIter {
+        std::iter::once(&(0, 0))
     }
+}
 
-    fn draw_block(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, block: &Block, color_map: &ColorMap) -> Result<()> {
-        let areas = area.split_by_breakpoints([block.width as u32], [self.c.spacer_thickness]);
-        let spacer_color = RGBColor(192, 208, 192);
-        areas[0].fill(&spacer_color)?;
-        areas[1].fill(&spacer_color)?;
-        areas[2].draw(&DrawableBlock::new(block, color_map))?;
-        areas[3].fill(&spacer_color)?;
-        Ok(())
-    }
-
-    fn draw_tile(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, tile: &BlockTile, brks: &(Breakpoints, Breakpoints)) -> Result<()> {
-        let color_map = self.color_map_config.to_color_map(tile.base_per_pixel() as f64);
-        let areas = area.split_by_breakpoints(brks.0.as_slice(), brks.1.as_slice());
-        for (i, area_chunk) in areas.chunks(brks.0.segments()).rev().enumerate() {
-            let blocks = tile.get_row(i);
-            for (area, block) in area_chunk.iter().zip(blocks.iter()) {
-                self.draw_block(area, block, &color_map)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn draw_xlabel(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, seq: &[Seq], brks: &Breakpoints, pitch: &TickPitch) -> Result<()> {
-        let (w, _) = area.dim_in_pixel();
-        area.draw(&Rectangle::new([(-1, 0), (w as i32, self.c.axes_thickness as i32)], BLACK.filled()))?;
-
-        let areas = area.split_by_breakpoints(brks.as_slice(), &[] as &[u32]);
-        for (area, seq) in areas.iter().zip(seq.iter()) {
-            let (w, _) = area.dim_in_pixel();
-            let ticks = pitch.to_ticks((0, 0), &seq.range, &self.c.x_tick, |i, subunit| {
-                format!("{:.1}", i as f64 / subunit as f64)
-            });
-            for tick in &ticks {
-                area.draw(tick)?;
-            }
-            area.draw_text(&seq.name, &self.x_seq_name_style, (w as i32 / 2, self.c.x_seq_name_setback as i32))?;
-        }
-        Ok(())
-    }
-
-    fn draw_ylabel(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, seq: &[Seq], brks: &Breakpoints, pitch: &TickPitch) -> Result<()> {
-        let (w, h) = area.dim_in_pixel();
-        area.draw(&Rectangle::new(
-            [(w as i32 - self.c.axes_thickness as i32, 0), (w as i32, h as i32 + 1)],
-            BLACK.filled(),
-        ))?;
-
-        let areas = area.split_by_breakpoints(&[] as &[u32], brks.as_slice());
-        for (area, seq) in areas.iter().rev().zip(seq.iter()) {
-            let (w, h) = area.dim_in_pixel();
-            let ticks = pitch.to_ticks((w as i32 - 1, h as i32 - 1), &seq.range, &self.c.y_tick, |i, subunit| {
-                format!("{:.1}", i as f64 / subunit as f64)
-            });
-            for tick in &ticks {
-                area.draw(tick)?;
-            }
-            area.draw_text(
-                &seq.name,
-                &self.y_seq_name_style,
-                (w as i32 - self.c.y_seq_name_setback as i32, h as i32 / 2),
-            )?;
-        }
-        Ok(())
-    }
-
-    fn draw_length_scale(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, tile: &BlockTile) -> Result<()> {
-        let pitch = TickPitch::new(self.c.target_tick_pitch, tile.base_per_pixel() as u32);
-        let subunit = ["bp", "kbp", "Mbp", "Gbp"][pitch.subunit.ilog(10) as usize / 3];
+impl<DB> Drawable<DB> for LengthScale<'_>
+where
+    DB: DrawingBackend,
+{
+    fn draw<I>(&self, pos: I, backend: &mut DB, _: (u32, u32)) -> Result<(), DrawingErrorKind<DB::ErrorType>>
+    where
+        I: Iterator<Item = (i32, i32)>,
+    {
+        let mut pos = pos;
+        let (base_x, base_y) = pos.next().unwrap();
 
         // ticks
-        let mut ticks = pitch.to_ticks(
-            (0, self.c.x_tick.len.0 as i32),
-            &(0..(pitch.label_period * pitch.pitch_in_bases) as usize),
-            &self.c.x_tick,
+        let ticks = Tick::build_vec(
+            (0, self.app.large_tick_length as i32 + self.thickness as i32),
+            &(0..self.len as usize),
+            Direction::Right,
+            Direction::Down,
+            &self.pitch,
+            &self.app,
             |i, subunit| format!("{:.1}", i as f64 / subunit as f64),
         );
+        let width = ticks.last().unwrap().tick_start.0 as u32 + 2;
 
-        // slightly modify the first and last ticks
-        let anchor = Pos::new(HPos::Center, VPos::Top);
-        let adj = self.c.x_tick.len.0 - self.c.axes_thickness + 1;
-        if let Some(tick) = ticks.first_mut() {
-            tick.label_anchor = anchor;
-            tick.tick_start.1 -= adj as i32;
-        }
-        if let Some(tick) = ticks.last_mut() {
-            tick.label_anchor = anchor;
-            tick.label = format!("{} {}", &tick.label, subunit);
-            tick.tick_start.1 -= adj as i32;
-        }
-        for tick in &ticks {
-            area.draw(tick)?;
-        }
-
-        // draw axis
-        let w = ticks.last().unwrap().tick_start.0 + 1;
-        area.draw(&Rectangle::new(
-            [
-                (0, self.c.x_tick.len.0 as i32),
-                (w, self.c.x_tick.len.0 as i32 + self.c.axes_thickness as i32),
-            ],
-            BLACK.filled(),
-        ))?;
-        Ok(())
-    }
-
-    fn draw_color_scale(&self, area: &DrawingArea<BitMapBackend<'_>, Shift>, tile: &BlockTile) -> Result<()> {
-        let max_seeds = 30.0 * self.color_map_config.density;
-        let pitch = TickPitch::new(self.c.color_scale_length / 3, 1);
-        eprintln!("pitch: {:?}", pitch);
-
-        let areas = area.split_by_breakpoints(
-            &[] as &[u32],
-            &[
-                self.c.x_tick.len.0,
-                self.c.x_tick.len.0 + self.c.axes_thickness,
-                self.c.x_tick.len.0 + self.c.axes_thickness + self.c.x_tick.len.0,
-            ],
-        );
-
-        // draw color scale
-        let color_map = self.color_map_config.to_color_map(tile.base_per_pixel() as f64);
-        for i in 0..self.c.color_scale_length {
-            let cnt = max_seeds.powf(i as f64 / self.c.color_scale_length as f64);
-            let cf = color_map.get_rgb_color(&[0, 1], cnt as u32).filled();
-            let cr = color_map.get_rgb_color(&[0, 2], cnt as u32).filled();
-            areas[0].draw(&Rectangle::new([(i as i32 + 1, 0), (i as i32 + 2, self.c.x_tick.len.0 as i32)], cf))?;
-            areas[2].draw(&Rectangle::new([(i as i32 + 1, 0), (i as i32 + 2, self.c.x_tick.len.0 as i32)], cr))?;
-        }
-
-        // ticks
-        let mut ticks = pitch.to_ticks(
-            (0, 0),
-            &(0..(pitch.label_period * pitch.pitch_in_bases) as usize),
-            &self.c.x_tick,
-            |i, _| format!("{:.1}", max_seeds.powf(i as f64 / self.c.color_scale_length as f64)),
-        );
-        let anchor = Pos::new(HPos::Center, VPos::Top);
-        let adj = self.c.x_tick.len.0 - self.c.axes_thickness + 1;
-        if let Some(tick) = ticks.first_mut() {
-            tick.label_anchor = anchor;
-            tick.tick_start.1 -= adj as i32;
-        }
-        if let Some(tick) = ticks.last_mut() {
-            tick.label_anchor = anchor;
-            tick.label = format!("{}/kbp^2", &tick.label);
-            tick.tick_start.1 -= adj as i32;
-        }
-        for (i, tick) in ticks.iter().enumerate() {
-            areas[1].draw(&Tick {
-                show_label: i % 2 == 0,
-                ..tick.clone()
-            })?;
-        }
-
-        // draw axis
-        let w = ticks.last().unwrap().tick_start.0 + 1;
-        area.draw(&Rectangle::new(
-            [
-                (0, self.c.x_tick.len.0 as i32),
-                (w, self.c.x_tick.len.0 as i32 + self.c.axes_thickness as i32),
-            ],
-            BLACK.filled(),
-        ))?;
-        Ok(())
-    }
-
-    pub fn plot(&self, name: &str, tile: &BlockTile) -> Result<()> {
-        let pitch = TickPitch::new(self.c.target_tick_pitch, tile.base_per_pixel() as u32);
-        let pixels = (
-            tile.horizontal_pixels()
-                .iter()
-                .map(|&x| x + self.c.spacer_thickness)
-                .collect::<Vec<_>>(),
-            tile.vertical_pixels()
-                .iter()
-                .rev()
-                .map(|&x| x + self.c.spacer_thickness)
-                .collect::<Vec<_>>(),
-        );
-        let brks = (Breakpoints::from_pixels(&pixels.0), Breakpoints::from_pixels(&pixels.1));
-
-        let layout = Layout(LayoutElem::Vertical(vec![
-            LayoutElem::Margined {
-                margin: LayoutMargin::default(),
-                center: Box::new(LayoutElem::Horizontal(vec![
-                    LayoutElem::Rect {
-                        id: Some("blocks1".to_string()),
-                        width: 0,
-                        height: 0,
-                    },
-                    LayoutElem::Rect {
-                        id: Some("blocks2".to_string()),
-                        width: 0,
-                        height: 0,
-                    },
-                ])),
+        // compose layout using the width determined above
+        let layout = Layout(LayoutElem::Horizontal(vec![
+            LayoutElem::Rect {
+                id: Some("up_ticks".to_string()),
+                width,
+                height: self.app.large_tick_length,
             },
-            LayoutElem::Margined {
-                margin: LayoutMargin::default(),
-                center: Box::new(LayoutElem::Horizontal(vec![
-                    LayoutElem::Rect {
-                        id: Some("length_scale".to_string()),
-                        width: 0,
-                        height: 0,
-                    },
-                    LayoutElem::Rect {
-                        id: Some("color_scale".to_string()),
-                        width: 0,
-                        height: 0,
-                    },
-                ])),
+            LayoutElem::Rect {
+                id: Some("axis".to_string()),
+                width,
+                height: self.thickness,
+            },
+            LayoutElem::Rect {
+                id: Some("down_ticks".to_string()),
+                width,
+                height: self.app.large_tick_length,
             },
         ]));
-        let yaml = serde_yaml::to_string(&layout)?;
-        eprintln!("yaml: {yaml}");
 
-        let layout = indoc::indoc! {"
-            margined:
-              margin:
-                left: 20
-                right: 20
-                top: 20
-                bottom: 20
-              center:
-                vertical:
-                - margined:
-                    margin:
-                      left: 40
-                      right: 0
-                      top: 0
-                      bottom: 10
-                    center:
-                      horizontal:
-                      - rect:
-                          id: length_scale
-                          width: 150
-                          height: 20
-                      - rect:
-                          id: color_scale
-                          width: 150
-                          height: 20
-                - rect:
-                    id: dotplot
-                    width: 0
-                    height: 0
-        "};
-        let dotplot_layout = indoc::indoc! {"
-            margined:
-              margin:
-                left: 60
-                right: 0
-                top: 0
-                bottom: 40
-            metadata:
+        // extend the first and last ticks upward
+        let mut ticks = ticks;
+        let adj = self.app.large_tick_length as i32 + self.thickness as i32;
+        if let Some(tick) = ticks.first_mut() {
+            tick.tick_start.1 -= adj;
+        }
+        if let Some(tick) = ticks.last_mut() {
+            tick.label = format!("{} {}bp", &tick.label, self.pitch.get_subunit_text());
+            tick.tick_start.1 -= adj;
+        }
 
-              center:
-                horizontal:
-                - rect:
-                    id: blocks1
-                    width: 0
-                    height: 0
-                - rect:
-                    id: blocks2
-                    width: 0
-                    height: 0
-        "};
+        let range = layout.get_range("down_ticks").unwrap();
+        let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        for tick in &ticks {
+            tick.draw(std::iter::once((base_x + x, base_y + y)), backend, (0, 0))?;
+        }
 
-        let mut layout = serde_yaml::from_str::<Layout>(layout)?;
-        let plot = layout.get_node_mut("dotplot").unwrap();
-        plot.set_dim((brks.0.pixels(), brks.1.pixels()))?;
-
-        let serialized = serde_yaml::to_string(&layout)?;
-        println!("serialized = {}", serialized);
-
-        let areas = StructuredDrawingArea::from_layout(&layout, name)?;
-
-        self.draw_tile(areas.get_area(".center.1.center")?, tile, &brks)?;
-        self.draw_ylabel(areas.get_area(".center.1.left")?, tile.vertical_seqs(), &brks.1, &pitch)?;
-        self.draw_xlabel(areas.get_area(".center.1.bottom")?, tile.horizontal_seqs(), &brks.0, &pitch)?;
-        // self.draw_origin(areas.get_area(".center.1.left-bottom]")?)?;
-        self.draw_length_scale(areas.get_area("length_scale")?, tile)?;
-        self.draw_color_scale(areas.get_area("color_scale")?, tile)?;
-        areas.present()?;
-
+        // draw axis
+        let range = layout.get_range("axis").unwrap();
+        backend.draw_rect(
+            range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft),
+            range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight),
+            &BLACK.color(),
+            true,
+        )?;
         Ok(())
     }
+}
+
+#[derive(Clone)]
+pub struct ColorScale<'a> {
+    len: u32,
+    thickness: u32,
+    color_map: ColorMap,
+    pitch: TickPitch,
+    app: &'a TickAppearance<'a>,
+}
+
+impl<'a> ColorScale<'a> {
+    fn new(desired_length: u32, axis_thickness: u32, color_map: &'_ ColorMap, appearance: &'a TickAppearance) -> ColorScale<'a> {
+        let pitch = TickPitch::new(desired_length / 4, 1);
+        let len = pitch.label_period * pitch.pitch_in_bases;
+        ColorScale {
+            len,
+            thickness: axis_thickness,
+            color_map: color_map.clone(),
+            pitch,
+            app: appearance,
+        }
+    }
+
+    fn get_dim(&self) -> (u32, u32) {
+        let w = self.len + 1;
+        let h = self.app.large_tick_length + self.thickness + self.app.label_setback + self.app.label_style.font.get_size() as u32;
+        (w, h)
+    }
+}
+
+impl<'a> PointCollection<'a, (i32, i32)> for &'a ColorScale<'_> {
+    type Point = &'a (i32, i32);
+    type IntoIter = std::iter::Once<&'a (i32, i32)>;
+
+    fn point_iter(self) -> Self::IntoIter {
+        std::iter::once(&(0, 0))
+    }
+}
+
+impl<DB> Drawable<DB> for ColorScale<'_>
+where
+    DB: DrawingBackend,
+{
+    fn draw<I>(&self, pos: I, backend: &mut DB, _: (u32, u32)) -> Result<(), DrawingErrorKind<DB::ErrorType>>
+    where
+        I: Iterator<Item = (i32, i32)>,
+    {
+        let mut pos = pos;
+        let (base_x, base_y) = pos.next().unwrap();
+
+        // first build ticks (to determine actual width)
+        let ticks = Tick::build_vec(
+            (0, 0),
+            &(0..self.len as usize),
+            Direction::Right,
+            Direction::Down,
+            &self.pitch,
+            &self.app,
+            |i, _| format!("{:.1}", self.color_map.max_density.powf(i as f64 / self.len as f64)),
+        );
+        let len = ticks.last().unwrap().tick_start.0;
+        let width = len as u32 + 2;
+
+        // compose layout using the width determined above
+        let layout = Layout(LayoutElem::Horizontal(vec![
+            LayoutElem::Rect {
+                id: Some("fw".to_string()),
+                width,
+                height: self.app.large_tick_length,
+            },
+            LayoutElem::Rect {
+                id: Some("axis".to_string()),
+                width,
+                height: self.thickness,
+            },
+            LayoutElem::Rect {
+                id: Some("rv".to_string()),
+                width,
+                height: self.app.large_tick_length,
+            },
+        ]));
+
+        // draw color scale
+        let (fw_x, fw_y) = layout
+            .get_range("fw")
+            .unwrap()
+            .get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        let (fw_x, fw_y) = (base_x + fw_x + 1, base_y + fw_y);
+
+        let (rv_x, rv_y) = layout
+            .get_range("rv")
+            .unwrap()
+            .get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        let (rv_x, rv_y) = (base_x + rv_x + 1, base_y + rv_y);
+
+        let height = self.app.large_tick_length as i32;
+        let picker = self.color_map.to_picker(self.pitch.base_per_pixel as f64);
+        for i in 0..len {
+            let cnt = self.color_map.max_density.powf(i as f64 / len as f64);
+            let cf = picker.get_color(0, cnt as u32).color();
+            backend.draw_rect((fw_x + i, fw_y), (fw_x + i + 1, fw_y + height), &cf, true)?;
+
+            let cr = picker.get_color(1, cnt as u32).color();
+            backend.draw_rect((rv_x + i, rv_y), (rv_x + i + 1, rv_y + height), &cr, true)?;
+        }
+
+        // draw ticks
+        let mut ticks = ticks;
+        let adj = self.app.large_tick_length as i32 + self.thickness as i32;
+        if let Some(tick) = ticks.first_mut() {
+            tick.tick_start.1 -= adj;
+        }
+        if let Some(tick) = ticks.last_mut() {
+            tick.label = format!("{}/kbp^2", &tick.label);
+            tick.tick_start.1 -= adj;
+        }
+
+        let (x, y) = layout
+            .get_range("rv")
+            .unwrap()
+            .get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        for (i, tick) in ticks.iter().enumerate() {
+            let tick = Tick {
+                show_label: i % 2 == 0,
+                ..tick.clone()
+            };
+            tick.draw(std::iter::once((base_x + x, base_y + y)), backend, (0, 0))?;
+        }
+
+        // draw axis
+        let range = layout.get_range("axis").unwrap();
+        backend.draw_rect(
+            range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft),
+            range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight),
+            &BLACK.color(),
+            true,
+        )?;
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct DotPlotAppearance<'a> {
+    pub axis_thickness: u32,
+    pub spacer_thickness: u32,
+    pub desired_tick_pitch: u32,
+
+    pub x_label_area_size: u32,
+    pub x_tick_apparance: TickAppearance<'a>,
+    pub x_seq_name_style: TextStyle<'a>,
+    pub x_seq_name_setback: u32,
+
+    pub y_label_area_size: u32,
+    pub y_tick_appearance: TickAppearance<'a>,
+    pub y_seq_name_style: TextStyle<'a>,
+    pub y_seq_name_setback: u32,
+}
+
+#[derive(Clone)]
+pub struct DotPlot<'a> {
+    tile: &'a BlockTile,
+    dim: (u32, u32),
+    x_brks: Breakpoints,
+    y_brks: Breakpoints,
+    pitch: TickPitch,
+    picker: ColorPicker,
+    app: &'a DotPlotAppearance<'a>,
+}
+
+impl<'a> DotPlot<'a> {
+    fn new(tile: &'a BlockTile, appearance: &'a DotPlotAppearance<'a>, color_map: &'_ ColorMap) -> DotPlot<'a> {
+        let add_spacer = |x: &u32| *x + appearance.spacer_thickness;
+        let x_pixels = tile.horizontal_pixels().iter().map(add_spacer).collect::<Vec<_>>();
+        let y_pixels = tile.vertical_pixels().iter().map(add_spacer).collect::<Vec<_>>();
+        let width = x_pixels.iter().sum::<u32>() + appearance.y_label_area_size;
+        let height = y_pixels.iter().sum::<u32>() + appearance.x_label_area_size;
+        DotPlot {
+            tile,
+            dim: (width, height),
+            x_brks: Breakpoints::from_pixels(&x_pixels),
+            y_brks: Breakpoints::from_pixels(&y_pixels),
+            pitch: TickPitch::new(appearance.desired_tick_pitch, tile.base_per_pixel() as u32),
+            picker: ColorMap::to_picker(color_map, tile.base_per_pixel() as f64),
+            app: appearance,
+        }
+    }
+
+    fn get_dim(&self) -> (u32, u32) {
+        self.dim
+    }
+
+    fn draw_block<DB>(&self, pos: (i32, i32), backend: &mut DB, block: &Block) -> Result<(), DrawingErrorKind<DB::ErrorType>>
+    where
+        DB: DrawingBackend,
+    {
+        let (base_x, base_y) = pos;
+        let layout = Layout(LayoutElem::Margined {
+            margin: LayoutMargin::new(0, self.app.spacer_thickness, self.app.spacer_thickness, 0),
+            center: Box::new(LayoutElem::Rect {
+                id: None,
+                width: block.width as u32,
+                height: block.height as u32,
+            }),
+        });
+
+        let spacer_color = RGBColor(192, 208, 192).color();
+        for area in &[".top", ".top-left", ".left"] {
+            let range = layout.get_range(area).unwrap();
+            backend.draw_rect(
+                range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft),
+                range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight),
+                &spacer_color,
+                true,
+            )?;
+        }
+        let range = layout.get_range(".center").unwrap();
+        let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        DrawableBlock::new(block, &self.picker).draw(std::iter::once((base_x + x, base_y + y)), backend, (0, 0))?;
+        Ok(())
+    }
+
+    fn draw_tile<DB>(&self, pos: (i32, i32), backend: &mut DB) -> Result<(), DrawingErrorKind<DB::ErrorType>>
+    where
+        DB: DrawingBackend,
+    {
+        let (base_x, base_y) = pos;
+        for (i, y) in self.y_brks.as_anchor_slice().windows(2).rev().enumerate() {
+            let blocks = self.tile.get_row(i).unwrap();
+            for (x, block) in self.x_brks.as_anchor_slice().windows(2).zip(blocks.iter()) {
+                self.draw_block((base_x + x[0] as i32, base_y + y[0] as i32), backend, block)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn draw_xlabel<DB, FM, FF>(
+        &self,
+        pos: (i32, i32),
+        backend: &mut DB,
+        seq: &Seq,
+        range_mapper: FM,
+        label_formatter: FF,
+    ) -> Result<(), DrawingErrorKind<DB::ErrorType>>
+    where
+        DB: DrawingBackend,
+        FM: Fn(&Seq) -> Range<usize>,
+        FF: Fn(u32, u32) -> String,
+    {
+        let (base_x, base_y) = pos;
+        let ticks = Tick::build_vec(
+            (0, 0),
+            &range_mapper(seq),
+            Direction::Down,
+            Direction::Right,
+            &self.pitch,
+            &self.app.x_tick_apparance,
+            label_formatter,
+        );
+        let width = ticks.last().unwrap().tick_start.0.abs() as u32 + 1;
+        let layout = Layout(LayoutElem::Horizontal(vec![
+            LayoutElem::Rect {
+                id: Some("axis".to_string()),
+                width,
+                height: self.app.axis_thickness,
+            },
+            LayoutElem::Rect {
+                id: Some("ticks".to_string()),
+                width,
+                height: self.app.x_seq_name_setback,
+            },
+            LayoutElem::Rect {
+                id: Some("seq_names".to_string()),
+                width,
+                height: 0,
+            },
+        ]));
+        let range = layout.get_range("axis").unwrap();
+        backend.draw_rect(
+            range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft),
+            range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight),
+            &BLACK.color(),
+            true,
+        )?;
+
+        let range = layout.get_range("ticks").unwrap();
+        let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        for tick in ticks {
+            tick.draw(std::iter::once((base_x + x, base_y + y)), backend, (0, 0))?;
+        }
+
+        let style = &self.app.x_seq_name_style.pos(Pos::new(HPos::Center, VPos::Top));
+        let range = layout.get_range("seq_names").unwrap();
+        let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        for (seq, bnd) in self.tile.horizontal_seqs().iter().zip(self.x_brks.as_anchor_slice().windows(2)) {
+            let offset = (bnd[0] + bnd[1]) / 2;
+            let pos = (base_x + x + offset as i32, base_y + y);
+            backend.draw_text(&seq.name, style, pos)?;
+        }
+        Ok(())
+    }
+
+    fn draw_xlabels<DB, FM, FF>(
+        &self,
+        pos: (i32, i32),
+        backend: &mut DB,
+        range_mapper: FM,
+        label_formatter: FF,
+    ) -> Result<(), DrawingErrorKind<DB::ErrorType>>
+    where
+        DB: DrawingBackend,
+        FM: Fn(&Seq) -> Range<usize>,
+        FF: Fn(u32, u32) -> String,
+    {
+        let (base_x, base_y) = pos;
+        for (x, seq) in self.x_brks.as_anchor_slice().windows(2).zip(self.tile.horizontal_seqs().iter()) {
+            self.draw_xlabel((base_x + x[0] as i32, base_y), backend, seq, &range_mapper, &label_formatter)?;
+        }
+        Ok(())
+    }
+
+    fn draw_ylabel<DB, FM, FF>(
+        &self,
+        pos: (i32, i32),
+        backend: &mut DB,
+        seq: &Seq,
+        range_mapper: FM,
+        label_formatter: FF,
+    ) -> Result<(), DrawingErrorKind<DB::ErrorType>>
+    where
+        DB: DrawingBackend,
+        FM: Fn(&Seq) -> Range<usize>,
+        FF: Fn(u32, u32) -> String,
+    {
+        let (base_x, base_y) = pos;
+        let ticks = Tick::build_vec(
+            (0, 0),
+            &range_mapper(seq),
+            Direction::Up,
+            Direction::Left,
+            &self.pitch,
+            &self.app.y_tick_appearance,
+            label_formatter,
+        );
+        let height = ticks.last().unwrap().tick_start.1.abs() as u32 + 1;
+        let layout = Layout(LayoutElem::Vertical(vec![
+            LayoutElem::Rect {
+                id: Some("axis".to_string()),
+                width: self.app.axis_thickness,
+                height,
+            },
+            LayoutElem::Rect {
+                id: Some("ticks".to_string()),
+                width: self.app.y_seq_name_setback,
+                height,
+            },
+            LayoutElem::Rect {
+                id: Some("seq_names".to_string()),
+                width: 0,
+                height,
+            },
+        ]));
+
+        let range = layout.get_range("axis").unwrap();
+        backend.draw_rect(
+            range.get_relative_pos(RectAnchor::BottomRight, RectAnchor::TopLeft),
+            range.get_relative_pos(RectAnchor::BottomRight, RectAnchor::BottomRight),
+            &BLACK.color(),
+            true,
+        )?;
+
+        let range = layout.get_range("ticks").unwrap();
+        let (x, y) = range.get_relative_pos(RectAnchor::BottomRight, RectAnchor::BottomRight);
+        for tick in ticks {
+            tick.draw(std::iter::once((base_x + x, base_y + y)), backend, (0, 0))?;
+        }
+
+        let style = &self
+            .app
+            .y_seq_name_style
+            .pos(Pos::new(HPos::Center, VPos::Bottom))
+            .transform(FontTransform::Rotate270);
+        let range = layout.get_range("seq_names").unwrap();
+        let (x, y) = range.get_relative_pos(RectAnchor::BottomRight, RectAnchor::BottomRight);
+        for (seq, bnd) in self.tile.vertical_seqs().iter().zip(self.y_brks.as_anchor_slice().windows(2)) {
+            let offset = (bnd[0] + bnd[1]) / 2;
+            let pos = (base_x + x, base_y + y - offset as i32);
+            backend.draw_text(&seq.name, style, pos)?;
+        }
+        Ok(())
+    }
+
+    fn draw_ylabels<DB, FM, FF>(
+        &self,
+        pos: (i32, i32),
+        backend: &mut DB,
+        range_mapper: FM,
+        label_formatter: FF,
+    ) -> Result<(), DrawingErrorKind<DB::ErrorType>>
+    where
+        DB: DrawingBackend,
+        FM: Fn(&Seq) -> Range<usize>,
+        FF: Fn(u32, u32) -> String,
+    {
+        let (base_x, base_y) = pos;
+        for (y, seq) in self.y_brks.as_anchor_slice().windows(2).zip(self.tile.vertical_seqs().iter()) {
+            self.draw_ylabel((base_x, base_y - y[0] as i32), backend, seq, &range_mapper, &label_formatter)?;
+        }
+        Ok(())
+    }
+}
+
+impl<'a> PointCollection<'a, (i32, i32)> for &'a DotPlot<'_> {
+    type Point = &'a (i32, i32);
+    type IntoIter = std::iter::Once<&'a (i32, i32)>;
+
+    fn point_iter(self) -> Self::IntoIter {
+        std::iter::once(&(0, 0))
+    }
+}
+
+impl<DB> Drawable<DB> for DotPlot<'_>
+where
+    DB: DrawingBackend,
+{
+    fn draw<I>(&self, pos: I, backend: &mut DB, _: (u32, u32)) -> Result<(), DrawingErrorKind<DB::ErrorType>>
+    where
+        I: Iterator<Item = (i32, i32)>,
+    {
+        let mut pos = pos;
+        let (base_x, base_y) = pos.next().unwrap();
+
+        let layout = Layout(LayoutElem::Margined {
+            margin: LayoutMargin::new(self.app.y_label_area_size, 0, 0, self.app.x_label_area_size),
+            center: Box::new(LayoutElem::Rect {
+                id: None,
+                width: self.x_brks.pixels(),
+                height: self.y_brks.pixels(),
+            }),
+        });
+
+        let range = layout.get_range(".center").unwrap();
+        let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        self.draw_tile((base_x + x, base_y + y), backend)?;
+
+        let range = layout.get_range(".left").unwrap();
+        let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight);
+        self.draw_ylabels(
+            (base_x + x, base_y + y),
+            backend,
+            |s| s.range.clone(),
+            |i, u| format!("{:.1}", i as f64 / u as f64),
+        )?;
+
+        let range = layout.get_range(".bottom").unwrap();
+        let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        self.draw_xlabels(
+            (base_x + x, base_y + y),
+            backend,
+            |s| s.range.clone(),
+            |i, u| format!("{:.1}", i as f64 / u as f64),
+        )?;
+        Ok(())
+    }
+}
+
+pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
+    let text_style = TextStyle::from(("sans-serif", 12).into_font()).color(&BLACK);
+    let tick_appearance = TickAppearance {
+        large_tick_length: 5,
+        small_tick_length: 1,
+        label_setback: 8,
+        label_style: text_style.clone(),
+        fit_in_box: true,
+    };
+    let appearance = DotPlotAppearance {
+        axis_thickness: 1,
+        spacer_thickness: 1,
+        desired_tick_pitch: 25,
+
+        x_label_area_size: 20,
+        x_tick_apparance: tick_appearance.clone(),
+        x_seq_name_style: text_style.clone(),
+        x_seq_name_setback: 25,
+
+        y_label_area_size: 20,
+        y_tick_appearance: tick_appearance.clone(),
+        y_seq_name_style: text_style.clone(),
+        y_seq_name_setback: 35,
+    };
+    let color_map = ColorMap {
+        palette: [RGBColor(255, 0, 64), RGBColor(0, 64, 255)],
+        max_density: 1000.0,
+        min_density: 1.0,
+    };
+    let dotplot = DotPlot::new(tile, &appearance, &color_map);
+
+    let (width, height) = dotplot.get_dim();
+    let layout = Layout(LayoutElem::Margined {
+        margin: LayoutMargin::uniform(20),
+        center: Box::new(LayoutElem::Horizontal(vec![
+            LayoutElem::Vertical(vec![
+                LayoutElem::Rect {
+                    id: Some("length_scale".to_string()),
+                    width: 110,
+                    height: 30,
+                },
+                LayoutElem::Rect {
+                    id: Some("color_scale".to_string()),
+                    width: 110,
+                    height: 30,
+                },
+            ]),
+            LayoutElem::Rect {
+                id: Some("dotplot".to_string()),
+                width,
+                height,
+            },
+        ])),
+    });
+    let areas = StructuredDrawingArea::from_layout(&layout, name)?;
+
+    if let Some(area) = areas.get_area("dotplot") {
+        area.draw(&dotplot)?;
+    }
+    if let Some(area) = areas.get_area("length_scale") {
+        let tick_pitch = TickPitch::new(100, tile.base_per_pixel() as u32);
+        let length_scale = LengthScale::new(100, 1, &tick_pitch, &tick_appearance);
+        area.draw(&length_scale)?;
+    }
+    if let Some(area) = areas.get_area("color_scale") {
+        let color_scale = ColorScale::new(100, 1, &color_map, &tick_appearance);
+        area.draw(&color_scale)?;
+    }
+    areas.present()?;
+    Ok(())
 }

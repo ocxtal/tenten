@@ -7,7 +7,7 @@ use plotters::coord::Shift;
 use plotters::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Range};
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
 pub struct LayoutMargin {
@@ -47,6 +47,54 @@ pub enum LayoutElem {
     Margined { margin: LayoutMargin, center: Box<LayoutElem> },
 }
 
+#[derive(Clone)]
+pub struct RectPosition {
+    bg_dim: (u32, u32),
+    x_range: Range<u32>,
+    y_range: Range<u32>,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum RectAnchor {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl RectPosition {
+    pub fn get_relative_pos(&self, root: RectAnchor, target: RectAnchor) -> (i32, i32) {
+        let x_adj = match root {
+            RectAnchor::TopLeft | RectAnchor::BottomLeft => 0,
+            RectAnchor::TopRight | RectAnchor::BottomRight => self.bg_dim.0 as i32,
+        };
+        let y_adj = match root {
+            RectAnchor::TopLeft | RectAnchor::TopRight => 0,
+            RectAnchor::BottomLeft | RectAnchor::BottomRight => self.bg_dim.1 as i32,
+        };
+        let x_pos = match target {
+            RectAnchor::TopLeft | RectAnchor::BottomLeft => self.x_range.start as i32,
+            RectAnchor::TopRight | RectAnchor::BottomRight => self.x_range.end as i32,
+        };
+        let y_pos = match target {
+            RectAnchor::TopLeft | RectAnchor::TopRight => self.y_range.start as i32,
+            RectAnchor::BottomLeft | RectAnchor::BottomRight => self.y_range.end as i32,
+        };
+        (x_pos - x_adj, y_pos - y_adj)
+    }
+
+    pub fn add_margin(&self, margin: &LayoutMargin) -> RectPosition {
+        RectPosition {
+            bg_dim: (
+                margin.left + self.bg_dim.0 + margin.right,
+                margin.top + self.bg_dim.1 + margin.bottom,
+            ),
+            x_range: self.x_range.start + margin.left..self.x_range.end + margin.left,
+            y_range: self.y_range.start + margin.top..self.y_range.end + margin.top,
+        }
+    }
+}
+
 impl LayoutElem {
     pub fn get_dim(&self) -> (u32, u32) {
         match self {
@@ -63,6 +111,126 @@ impl LayoutElem {
                 let (w, h) = center.get_dim();
                 (w + margin.left + margin.right, h + margin.top + margin.bottom)
             }
+        }
+    }
+
+    fn get_range_vec<F>(inner: &[LayoutElem], index: &str, path: &str, is_horizontal: bool, get: F) -> Option<RectPosition>
+    where
+        F: Fn(&LayoutElem, &str) -> Option<RectPosition>,
+    {
+        let index = index.parse::<usize>().ok().filter(|&x| x < inner.len())?;
+        let range = get(&inner[index], path)?;
+
+        let before = inner[..index].iter().map(|node| node.get_dim().0).sum::<u32>();
+        let after = inner[index + 1..].iter().map(|node| node.get_dim().0).sum::<u32>();
+        let range = if is_horizontal {
+            range.add_margin(&LayoutMargin::new(before, after, 0, 0))
+        } else {
+            range.add_margin(&LayoutMargin::new(0, 0, before, after))
+        };
+        Some(range)
+    }
+
+    fn locate_margin(range: &RectPosition, margin: &LayoutMargin, key: &str) -> Option<RectPosition> {
+        let x_range = match key {
+            "top-left" | "left" | "bottom-left" => 0..margin.left,
+            "top" | "center" | "bottom" => margin.left..range.bg_dim.0 - margin.right,
+            "top-right" | "right" | "bottom-right" => range.bg_dim.0 - margin.right..range.bg_dim.0,
+            _ => return None,
+        };
+        let y_range = match key {
+            "top-left" | "top" | "top-right" => 0..margin.top,
+            "left" | "center" | "right" => margin.top..range.bg_dim.1 - margin.bottom,
+            "bottom-left" | "bottom" | "bottom-right" => range.bg_dim.1 - margin.bottom..range.bg_dim.1,
+            _ => return None,
+        };
+        Some(RectPosition {
+            bg_dim: range.bg_dim,
+            x_range,
+            y_range,
+        })
+    }
+
+    fn get_range_by_path(&self, path: &str) -> Option<RectPosition> {
+        eprintln!("get_range_by_path: {path:?}, self: {self:?}");
+        if path.is_empty() {
+            let (w, h) = self.get_dim();
+            return Some(RectPosition {
+                bg_dim: (w, h),
+                x_range: 0..w,
+                y_range: 0..h,
+            });
+        }
+
+        let mut path = path.splitn(2, '.');
+        let id = path.next()?;
+        let rem = path.next().unwrap_or("");
+        match self {
+            LayoutElem::Rect { .. } => None,
+            LayoutElem::Horizontal(inner) | LayoutElem::Vertical(inner) => {
+                let index = id.parse::<usize>().ok().filter(|&x| x < inner.len())?;
+                let range = inner[index].get_range_by_path(rem)?;
+
+                if matches!(self, LayoutElem::Horizontal(_)) {
+                    let before = inner[..index].iter().map(|node| node.get_dim().0).sum::<u32>();
+                    let after = inner[index + 1..].iter().map(|node| node.get_dim().0).sum::<u32>();
+                    Some(range.add_margin(&LayoutMargin::new(before, after, 0, 0)))
+                } else {
+                    let before = inner[..index].iter().map(|node| node.get_dim().1).sum::<u32>();
+                    let after = inner[index + 1..].iter().map(|node| node.get_dim().1).sum::<u32>();
+                    Some(range.add_margin(&LayoutMargin::new(0, 0, before, after)))
+                }
+            }
+            LayoutElem::Margined { margin, center } => {
+                let range = center.get_range_by_path(rem)?.add_margin(margin);
+                Self::locate_margin(&range, margin, id)
+            }
+        }
+    }
+
+    fn get_range_by_id(&self, id: &str) -> Option<RectPosition> {
+        eprintln!("get_range_by_id: {id:?}, self: {self:?}");
+        match self {
+            LayoutElem::Rect { id: rect_id, .. } => {
+                if rect_id.as_deref() == Some(id) {
+                    let (w, h) = self.get_dim();
+                    Some(RectPosition {
+                        bg_dim: (w, h),
+                        x_range: 0..w,
+                        y_range: 0..h,
+                    })
+                } else {
+                    None
+                }
+            }
+            LayoutElem::Horizontal(inner) | LayoutElem::Vertical(inner) => {
+                let ranges = inner.iter().map(|node| node.get_range_by_id(id)).collect::<Vec<_>>();
+                let index = ranges.iter().position(|x| x.is_some())?;
+
+                if matches!(self, LayoutElem::Horizontal(_)) {
+                    let before = inner[..index].iter().map(|node| node.get_dim().0).sum::<u32>();
+                    let after = inner[index + 1..].iter().map(|node| node.get_dim().0).sum::<u32>();
+                    let range = ranges[index].as_ref().unwrap().add_margin(&LayoutMargin::new(before, after, 0, 0));
+                    Some(range)
+                } else {
+                    let before = inner[..index].iter().map(|node| node.get_dim().1).sum::<u32>();
+                    let after = inner[index + 1..].iter().map(|node| node.get_dim().1).sum::<u32>();
+                    let range = ranges[index].as_ref().unwrap().add_margin(&LayoutMargin::new(0, 0, before, after));
+                    Some(range)
+                }
+            }
+            LayoutElem::Margined { margin, center } => {
+                let range = center.get_range_by_id(id)?.add_margin(margin);
+                Self::locate_margin(&range, margin, id)
+            }
+        }
+    }
+
+    pub fn get_range(&self, path: &str) -> Option<RectPosition> {
+        if let Some(path) = path.strip_prefix('.') {
+            self.get_range_by_path(path)
+        } else {
+            self.get_range_by_id(path)
         }
     }
 
@@ -100,7 +268,7 @@ impl LayoutElem {
         }
     }
 
-    pub fn get_node_by_path_mut(&mut self, path: &str) -> Option<&mut LayoutElem> {
+    fn get_node_by_path_mut(&mut self, path: &str) -> Option<&mut LayoutElem> {
         if path.is_empty() {
             return Some(self);
         }
@@ -115,15 +283,16 @@ impl LayoutElem {
                 inner[index].get_node_by_path_mut(rem)
             }
             LayoutElem::Margined { center, .. } => {
-                if id != "center" {
-                    return None;
+                if id == "center" {
+                    center.get_node_by_path_mut(rem)
+                } else {
+                    None
                 }
-                center.get_node_by_path_mut(rem)
             }
         }
     }
 
-    pub fn get_node_by_id_mut(&mut self, id: &str) -> Option<&mut LayoutElem> {
+    fn get_node_by_id_mut(&mut self, id: &str) -> Option<&mut LayoutElem> {
         match self {
             LayoutElem::Rect { id: rect_id, .. } => {
                 if rect_id.as_deref() == Some(id) {
@@ -274,11 +443,11 @@ impl<'a> StructuredDrawingArea<'a> {
         Ok(s)
     }
 
-    pub fn get_area(&self, key: &str) -> Result<&DrawingArea<BitMapBackend<'a>, Shift>> {
+    pub fn get_area(&self, key: &str) -> Option<&DrawingArea<BitMapBackend<'a>, Shift>> {
         if let Some(&i) = self.index.get(key) {
-            Ok(&self.areas[i])
+            Some(&self.areas[i])
         } else {
-            Err(anyhow!("area not found: {}", key))
+            None
         }
     }
 

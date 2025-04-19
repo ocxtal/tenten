@@ -40,10 +40,13 @@ impl BlockTile {
     //     self.qseq.len()
     // }
 
-    pub fn get_row(&self, row: usize) -> &[Block] {
+    pub fn get_row(&self, row: usize) -> Option<&[Block]> {
         let start = row * self.rseq.len();
         let end = start + self.rseq.len();
-        &self.blocks[start..end]
+        if start > end || end > self.blocks.len() {
+            return None;
+        }
+        Some(&self.blocks[start..end])
     }
 
     pub fn count(&self) -> usize {

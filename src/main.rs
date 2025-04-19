@@ -8,7 +8,7 @@ mod seq;
 use crate::block::{BlockBin, BlockTile};
 use crate::eval::parse_usize;
 use crate::parser::{SeedParser, SeedToken};
-use crate::plotter::Plotter;
+use crate::plotter::plot;
 use crate::seq::{RangeFormat, Seq, filter_range, load_range};
 use clap::Parser;
 use std::io::{BufRead, Read};
@@ -202,16 +202,15 @@ impl Read for SeedGeneratorCommand {
     }
 }
 
-struct Context<'a> {
+struct Context {
     basename: String,
     rseq: Vec<Seq>,
     qseq: Vec<Seq>,
     bin: BlockBin,
-    plotter: Plotter<'a>,
     args: Args,
 }
 
-impl<'a> Context<'a> {
+impl Context {
     fn new(args: &Args) -> Self {
         let (mut rseq, mut qseq) = if let Some(query) = &args.query {
             let rseq = load_range(&args.reference, &RangeFormat::Fasta).unwrap();
@@ -246,7 +245,6 @@ impl<'a> Context<'a> {
             rseq,
             qseq,
             bin,
-            plotter: Plotter::new(args.density, args.min_density, args.swap_plot_axes),
             args: args.clone(),
         }
     }
@@ -263,12 +261,12 @@ impl<'a> Context<'a> {
         } else {
             format!("{}.png", &self.basename)
         };
-        self.plotter.plot(&name, tile).unwrap();
+        plot(&name, tile).unwrap();
     }
 
     fn plot_iterm2(&self, tile: &BlockTile) {
         let mut file = NamedTempFile::with_suffix(".png").unwrap();
-        self.plotter.plot(file.path().to_str().unwrap(), tile).unwrap();
+        plot(&file.path().to_str().unwrap(), tile).unwrap();
 
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
