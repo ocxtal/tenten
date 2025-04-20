@@ -1,15 +1,15 @@
+pub mod axis;
 pub mod block;
 pub mod color;
 pub mod dotplane;
 pub mod dotplot;
 pub mod layout;
 pub mod parser;
-pub mod tick;
 pub mod plotter;
 pub mod sequence;
 
+use axis::{AxisAppearance, AxisPitch};
 use color::DensityColorMap;
 use dotplane::{ColorMap, DotPlane};
 use dotplot::{DotPlot, DotPlotAppearance};
 use sequence::Sequence;
-use tick::{AxisAppearance, Axis};
