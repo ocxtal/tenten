@@ -369,13 +369,13 @@ where
 pub struct ColorScale<'a> {
     len: u32,
     thickness: u32,
-    color_map: ColorMap,
+    color_map: DensityColorMap,
     pitch: TickPitch,
     app: &'a TickAppearance<'a>,
 }
 
 impl<'a> ColorScale<'a> {
-    fn new(desired_length: u32, axis_thickness: u32, color_map: &'_ ColorMap, appearance: &'a TickAppearance) -> ColorScale<'a> {
+    fn new(desired_length: u32, axis_thickness: u32, color_map: &'_ DensityColorMap, appearance: &'a TickAppearance) -> ColorScale<'a> {
         let pitch = TickPitch::new(desired_length / 4, 1);
         let len = pitch.label_period * pitch.pitch_in_bases;
         ColorScale {
@@ -529,7 +529,7 @@ pub struct DotPlot<'a> {
 }
 
 impl<'a> DotPlot<'a> {
-    fn new(tile: &'a BlockTile, appearance: &'a DotPlotAppearance<'a>, color_map: &'_ ColorMap) -> DotPlot<'a> {
+    fn new(tile: &'a BlockTile, appearance: &'a DotPlotAppearance<'a>, color_map: &'_ DensityColorMap) -> DotPlot<'a> {
         let add_spacer = |x: &u32| *x + appearance.spacer_thickness;
         let x_pixels = tile.horizontal_pixels().iter().map(add_spacer).collect::<Vec<_>>();
         let y_pixels = tile.vertical_pixels().iter().map(add_spacer).collect::<Vec<_>>();
@@ -843,7 +843,7 @@ pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
         y_seq_name_style: text_style.clone(),
         y_seq_name_setback: 35,
     };
-    let color_map = ColorMap {
+    let color_map = DensityColorMap {
         palette: [RGBColor(255, 0, 64), RGBColor(0, 64, 255)],
         max_density: 1000.0,
         min_density: 1.0,
