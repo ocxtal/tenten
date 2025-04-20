@@ -5,8 +5,8 @@
 use crate::dotplot::Direction;
 use crate::dotplot::axis::{Axis, AxisAppearance, Tick};
 use crate::dotplot::color::DensityColorMap;
-use crate::dotplot::dotplane::DotPlane;
 use crate::dotplot::layout::{Layout, LayoutElem, LayoutMargin, RectAnchor};
+use crate::dotplot::plane::DotPlane;
 use crate::dotplot::sequence::SequenceRange;
 use anyhow::Result;
 use plotters::element::{Drawable, PointCollection};

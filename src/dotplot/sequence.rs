@@ -126,7 +126,3 @@ pub fn load_sequence_range(file: &str, format: &RangeFormat) -> Result<Vec<Seque
         }
     }
 }
-
-pub fn filter_range(ranges: &[SequenceRange], _filter: &[SequenceRange]) -> Vec<SequenceRange> {
-    ranges.to_vec()
-}

@@ -205,6 +205,11 @@ impl Read for SeedGeneratorCommand {
     }
 }
 
+fn filter_range(ranges: &[SequenceRange], _filter: &[SequenceRange]) -> Vec<SequenceRange> {
+    // TODO: implement this
+    ranges.to_vec()
+}
+
 struct Context<'a> {
     basename: String,
     rseq: Vec<SequenceRange>,
@@ -225,14 +230,14 @@ impl<'a> Context<'a> {
             (Vec::new(), Vec::new())
         };
 
-        // if let Some(reference_range) = &args.reference_range {
-        //     let rcrop = load_sequence_range(reference_range, &args.reference_range_format).unwrap();
-        //     rseq = filter_range(&rseq, &rcrop);
-        // }
-        // if let Some(query_range) = &args.query_range {
-        //     let qcrop = load_sequence_range(query_range, &args.query_range_format).unwrap();
-        //     qseq = filter_range(&qseq, &qcrop);
-        // }
+        if let Some(reference_range) = &args.reference_range {
+            let rcrop = load_sequence_range(reference_range, &args.reference_range_format).unwrap();
+            rseq = filter_range(&rseq, &rcrop);
+        }
+        if let Some(query_range) = &args.query_range {
+            let qcrop = load_sequence_range(query_range, &args.query_range_format).unwrap();
+            qseq = filter_range(&qseq, &qcrop);
+        }
         let (rseq, qseq) = if args.swap_generator { (qseq, rseq) } else { (rseq, qseq) };
 
         log::debug!("reference ranges: {rseq:?}");
@@ -399,7 +404,7 @@ fn main() {
     let color_map = DensityColorMap {
         palette: [RGBColor(255, 0, 64), RGBColor(0, 64, 255)],
         max_density: args.density * args.density / min_density,
-        min_density: min_density,
+        min_density,
     };
 
     // create dotplot
@@ -428,8 +433,8 @@ fn main() {
     };
     // parse the stream
     let mut ctx = Context::new(&args, &color_map, &appearance);
-    let mut parser = SeedParser::new(stream.lines(), args.swap_generator);
-    while let Some(token) = parser.next() {
+    let parser = SeedParser::new(stream.lines(), args.swap_generator);
+    for token in parser {
         ctx.process_token(token);
     }
     log::info!("seed stream reached the end. cleaning...");

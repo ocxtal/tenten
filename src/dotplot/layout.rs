@@ -54,6 +54,7 @@ pub struct RectPosition {
     y_range: Range<u32>,
 }
 
+#[allow(dead_code)]
 #[derive(Copy, Clone, Debug)]
 pub enum RectAnchor {
     TopLeft,
@@ -95,6 +96,7 @@ impl RectPosition {
     }
 }
 
+#[allow(dead_code)]
 impl LayoutElem {
     pub fn new_rect(width: u32, height: u32) -> LayoutElem {
         LayoutElem::Rect { id: None, width, height }
