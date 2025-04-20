@@ -1,20 +1,12 @@
-mod block;
-mod eval;
-mod layout;
-mod parser;
-mod plotter;
-mod seq;
-
-use crate::block::{BlockBin, BlockTile};
-use crate::eval::parse_usize;
-use crate::parser::{SeedParser, SeedToken};
-use crate::plotter::plot;
-use crate::seq::{RangeFormat, Seq, filter_range, load_range};
 use clap::Parser;
 use std::io::{BufRead, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use tempfile::NamedTempFile;
+use tenten::block::{BlockBin, BlockTile};
+use tenten::parser::{SeedParser, SeedToken};
+use tenten::plotter::plot;
+use tenten::seq::{RangeFormat, Seq, filter_range, load_range};
 
 #[derive(Clone, Debug, Parser)]
 #[command(version)]
@@ -39,7 +31,7 @@ pub struct Args {
     #[clap(short = 'O', long, help = "Use stdout of seed generator, instead of stderr")]
     pub use_stdout: bool,
 
-    #[clap(short = 'b', long, help = "Bases per pixel", default_value = "100", value_parser = parse_usize)]
+    #[clap(short = 'b', long, help = "Bases per pixel", default_value = "100")]
     pub base_per_pixel: usize,
 
     #[clap(
@@ -127,10 +119,10 @@ pub struct Args {
     )]
     pub iterm2: bool,
 
-    #[clap(short = 'W', long, help = "Width in characters when printing plot to terminal", value_parser = parse_usize)]
+    #[clap(short = 'W', long, help = "Width in characters when printing plot to terminal")]
     pub iterm2_width: Option<usize>,
 
-    #[clap(short = 'H', long, help = "Height in characters when printing plot to terminal", value_parser = parse_usize)]
+    #[clap(short = 'H', long, help = "Height in characters when printing plot to terminal")]
     pub iterm2_height: Option<usize>,
 
     #[clap(long, help = "Suppress logs")]
