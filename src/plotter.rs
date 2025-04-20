@@ -38,61 +38,12 @@ impl Breakpoints {
         Breakpoints { v }
     }
 
-    fn as_breakpoint_slice(&self) -> &[u32] {
-        assert!(self.v.len() >= 2);
-        &self.v[1..self.v.len() - 1]
-    }
-
-    fn as_anchor_slice(&self) -> &[u32] {
+    fn as_slice(&self) -> &[u32] {
         &self.v
     }
 
-    // fn extend_slice(&mut self, v: &[u32]) {
-    //     let offset = *self.v.last().unwrap();
-    //     for b in v.iter().skip(1) {
-    //         self.v.push(offset + b);
-    //     }
-    // }
-
-    // fn extend(&mut self, other: &Breakpoints) {
-    //     self.extend_slice(&other.v);
-    // }
-
-    // fn to_margined(&self, left: Option<u32>, right: Option<u32>) -> Breakpoints {
-    //     let mut b = Breakpoints { v: vec![0] };
-    //     if let Some(left) = left {
-    //         b.extend_slice(&[0, left]);
-    //     }
-    //     b.extend_slice(&self.v);
-    //     if let Some(right) = right {
-    //         b.extend_slice(&[0, right]);
-    //     }
-    //     b
-    // }
-
-    // fn to_smashed(&self) -> Breakpoints {
-    //     let last = self.v.last().unwrap();
-    //     Breakpoints { v: vec![0, *last] }
-    // }
-
-    // fn reverse(&mut self) {
-    //     dbg!(&self.v);
-    //     let mut acc = 0;
-    //     let mut v = vec![0];
-    //     for w in self.v.windows(2).rev() {
-    //         acc += w[1] - w[0];
-    //         v.push(acc);
-    //     }
-    //     self.v = v;
-    //     dbg!(&self.v);
-    // }
-
     fn pixels(&self) -> u32 {
         *self.v.last().unwrap()
-    }
-
-    fn segments(&self) -> usize {
-        self.v.len() - 1
     }
 }
 
@@ -104,7 +55,7 @@ pub struct ColorMap {
 }
 
 impl ColorMap {
-    fn to_picker(&self, base_per_pixel: f64) -> ColorPicker {
+    fn to_picker(self, base_per_pixel: f64) -> ColorPicker {
         let expansion = (1000.0 / base_per_pixel).powf(2.0);
         let max_count = self.max_density * expansion;
         let min_count = self.min_density * expansion;
@@ -284,6 +235,7 @@ impl<'a> Tick<'a> {
         labels
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build(
         root: (i32, i32),
         pos: i32,
@@ -401,7 +353,7 @@ impl<'a> LengthScale<'a> {
         LengthScale {
             len,
             thickness: axis_thickness,
-            pitch: tick_pitch.clone(),
+            pitch: *tick_pitch,
             app: tick_appearance,
         }
     }
@@ -441,7 +393,7 @@ where
             Direction::Right,
             Direction::Down,
             &self.pitch,
-            &self.app,
+            self.app,
             |i, subunit| format!("{:.1}", i as f64 / subunit as f64),
         );
         let width = ticks.last().unwrap().tick_start.0 as u32 + 1;
@@ -510,7 +462,7 @@ impl<'a> ColorScale<'a> {
         ColorScale {
             len,
             thickness: axis_thickness,
-            color_map: color_map.clone(),
+            color_map: *color_map,
             pitch,
             app: appearance,
         }
@@ -551,7 +503,7 @@ where
             Direction::Right,
             Direction::Down,
             &self.pitch,
-            &self.app,
+            self.app,
             |i, _| format!("{:.1}", self.color_map.max_density.powf(i as f64 / self.len as f64)),
         );
         let len = ticks.last().unwrap().tick_start.0;
@@ -670,7 +622,7 @@ impl<'a> DotPlot<'a> {
             x_brks: Breakpoints::from_pixels(&x_pixels),
             y_brks: Breakpoints::from_pixels(&y_pixels),
             pitch: TickPitch::new(appearance.desired_tick_pitch, tile.base_per_pixel() as u32),
-            picker: ColorMap::to_picker(color_map, tile.base_per_pixel() as f64),
+            picker: color_map.to_picker(tile.base_per_pixel() as f64),
             app: appearance,
         }
     }
@@ -715,9 +667,9 @@ impl<'a> DotPlot<'a> {
         DB: DrawingBackend,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
-        for (i, y) in self.y_brks.as_anchor_slice().windows(2).enumerate() {
+        for (i, y) in self.y_brks.as_slice().windows(2).enumerate() {
             let blocks = self.tile.get_row(i).unwrap();
-            for (x, block) in self.x_brks.as_anchor_slice().windows(2).zip(blocks.iter()) {
+            for (x, block) in self.x_brks.as_slice().windows(2).zip(blocks.iter()) {
                 self.draw_block(shift((x[0] as i32, -(y[1] as i32))), backend, block)?;
             }
         }
@@ -747,7 +699,7 @@ impl<'a> DotPlot<'a> {
             &self.app.x_tick_apparance,
             label_formatter,
         );
-        let width = ticks.last().unwrap().tick_start.0.abs() as u32 + 1;
+        let width = ticks.last().unwrap().tick_start.0.unsigned_abs() + 1;
         let layout = Layout(LayoutElem::Vertical(vec![
             LayoutElem::Rect {
                 id: Some("axis".to_string()),
@@ -799,7 +751,7 @@ impl<'a> DotPlot<'a> {
         FF: Fn(u32, u32) -> String,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
-        for (x, seq) in self.x_brks.as_anchor_slice().windows(2).zip(self.tile.horizontal_seqs().iter()) {
+        for (x, seq) in self.x_brks.as_slice().windows(2).zip(self.tile.horizontal_seqs().iter()) {
             self.draw_xlabel(shift((x[0] as i32, 0)), backend, seq, &range_mapper, &label_formatter)?;
         }
         Ok(())
@@ -828,7 +780,7 @@ impl<'a> DotPlot<'a> {
             &self.app.y_tick_appearance,
             label_formatter,
         );
-        let height = ticks.last().unwrap().tick_start.1.abs() as u32;
+        let height = ticks.last().unwrap().tick_start.1.unsigned_abs();
         let layout = Layout(LayoutElem::Horizontal(vec![
             LayoutElem::Rect {
                 id: Some("seq_names".to_string()),
@@ -885,7 +837,7 @@ impl<'a> DotPlot<'a> {
         FF: Fn(u32, u32) -> String,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
-        for (y, seq) in self.y_brks.as_anchor_slice().windows(2).zip(self.tile.vertical_seqs().iter()) {
+        for (y, seq) in self.y_brks.as_slice().windows(2).zip(self.tile.vertical_seqs().iter()) {
             self.draw_ylabel(shift((0, -(y[0] as i32))), backend, seq, &range_mapper, &label_formatter)?;
         }
         Ok(())
@@ -948,6 +900,7 @@ where
 }
 
 pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
+    // create dotplot
     let text_style = TextStyle::from(("sans-serif", 12).into_font()).color(&BLACK);
     let tick_appearance = TickAppearance {
         large_tick_length: 3,
@@ -978,7 +931,21 @@ pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
     };
     let dotplot = DotPlot::new(tile, &appearance, &color_map);
 
-    let (width, height) = dotplot.get_dim();
+    // create length scale
+    let tick_pitch = TickPitch::new(appearance.desired_tick_pitch, tile.base_per_pixel() as u32);
+    let tick_appearance = TickAppearance {
+        fit_in_box: false,
+        ..tick_appearance.clone()
+    };
+    let length_scale = LengthScale::new(100, 1, &tick_pitch, &tick_appearance);
+
+    // create color scale
+    let tick_appearance = TickAppearance {
+        fit_in_box: false,
+        ..tick_appearance.clone()
+    };
+    let color_scale = ColorScale::new(200, 1, &color_map, &tick_appearance);
+
     let layout = Layout(LayoutElem::Margined {
         margin: LayoutMargin::uniform(20),
         center: Box::new(LayoutElem::Vertical(vec![
@@ -988,21 +955,27 @@ pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
                     width: 50,
                     height: 30,
                 },
-                LayoutElem::Rect {
-                    id: Some("length_scale".to_string()),
-                    width: 110,
-                    height: 30,
+                LayoutElem::Margined {
+                    margin: LayoutMargin::uniform(10),
+                    center: Box::new(LayoutElem::Rect {
+                        id: Some("length_scale".to_string()),
+                        width: length_scale.get_dim().0,
+                        height: length_scale.get_dim().1,
+                    }),
                 },
-                LayoutElem::Rect {
-                    id: Some("color_scale".to_string()),
-                    width: 110,
-                    height: 30,
+                LayoutElem::Margined {
+                    margin: LayoutMargin::uniform(10),
+                    center: Box::new(LayoutElem::Rect {
+                        id: Some("color_scale".to_string()),
+                        width: color_scale.get_dim().0,
+                        height: color_scale.get_dim().1,
+                    }),
                 },
             ]),
             LayoutElem::Rect {
                 id: Some("dotplot".to_string()),
-                width,
-                height,
+                width: dotplot.get_dim().0,
+                height: dotplot.get_dim().1,
             },
         ])),
     });
@@ -1012,20 +985,9 @@ pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
         area.draw(&dotplot)?;
     }
     if let Some(area) = areas.get_area("length_scale") {
-        let tick_pitch = TickPitch::new(appearance.desired_tick_pitch, tile.base_per_pixel() as u32);
-        let tick_appearance = TickAppearance {
-            fit_in_box: false,
-            ..tick_appearance.clone()
-        };
-        let length_scale = LengthScale::new(100, 1, &tick_pitch, &tick_appearance);
         area.draw(&length_scale)?;
     }
     if let Some(area) = areas.get_area("color_scale") {
-        let tick_appearance = TickAppearance {
-            fit_in_box: false,
-            ..tick_appearance.clone()
-        };
-        let color_scale = ColorScale::new(200, 1, &color_map, &tick_appearance);
         area.draw(&color_scale)?;
     }
     areas.present()?;

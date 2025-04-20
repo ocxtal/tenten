@@ -98,8 +98,15 @@ where
 
         Some(SeedToken::Seed(rname, rpos, is_rev, qname, qpos))
     }
+}
 
-    pub fn next(&mut self) -> Option<SeedToken> {
+impl<T> Iterator for SeedParser<T>
+where
+    T: Iterator<Item = std::io::Result<String>>,
+{
+    type Item = SeedToken;
+
+    fn next(&mut self) -> Option<Self::Item> {
         while let Some(line) = self.it.next() {
             let line = line.ok()?;
             let line = line.trim();

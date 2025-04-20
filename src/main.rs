@@ -258,7 +258,7 @@ impl Context {
 
     fn plot_iterm2(&self, tile: &BlockTile) {
         let mut file = NamedTempFile::with_suffix(".png").unwrap();
-        plot(&file.path().to_str().unwrap(), tile).unwrap();
+        plot(file.path().to_str().unwrap(), tile).unwrap();
 
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();

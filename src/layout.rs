@@ -114,23 +114,6 @@ impl LayoutElem {
         }
     }
 
-    fn get_range_vec<F>(inner: &[LayoutElem], index: &str, path: &str, is_horizontal: bool, get: F) -> Option<RectPosition>
-    where
-        F: Fn(&LayoutElem, &str) -> Option<RectPosition>,
-    {
-        let index = index.parse::<usize>().ok().filter(|&x| x < inner.len())?;
-        let range = get(&inner[index], path)?;
-
-        let before = inner[..index].iter().map(|node| node.get_dim().0).sum::<u32>();
-        let after = inner[index + 1..].iter().map(|node| node.get_dim().0).sum::<u32>();
-        let range = if is_horizontal {
-            range.add_margin(&LayoutMargin::new(before, after, 0, 0))
-        } else {
-            range.add_margin(&LayoutMargin::new(0, 0, before, after))
-        };
-        Some(range)
-    }
-
     fn locate_margin(range: &RectPosition, margin: &LayoutMargin, key: &str) -> Option<RectPosition> {
         let x_range = match key {
             "top-left" | "left" | "bottom-left" => 0..margin.left,
