@@ -715,12 +715,9 @@ impl<'a> DotPlot<'a> {
         DB: DrawingBackend,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
-
-        // eprintln!("draw_tile: {}, {}", base_x, base_y);
         for (i, y) in self.y_brks.as_anchor_slice().windows(2).enumerate() {
             let blocks = self.tile.get_row(i).unwrap();
             for (x, block) in self.x_brks.as_anchor_slice().windows(2).zip(blocks.iter()) {
-                // eprintln!("draw_block: {}, {}, {}", i, base_x + x[0] as i32, base_y - y[1] as i32);
                 self.draw_block(shift((x[0] as i32, -(y[1] as i32))), backend, block)?;
             }
         }
@@ -803,7 +800,6 @@ impl<'a> DotPlot<'a> {
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
         for (x, seq) in self.x_brks.as_anchor_slice().windows(2).zip(self.tile.horizontal_seqs().iter()) {
-            eprintln!("draw_xlabel: {}, {}", x[0], x[1]);
             self.draw_xlabel(shift((x[0] as i32, 0)), backend, seq, &range_mapper, &label_formatter)?;
         }
         Ok(())
@@ -833,11 +829,6 @@ impl<'a> DotPlot<'a> {
             label_formatter,
         );
         let height = ticks.last().unwrap().tick_start.1.abs() as u32;
-        eprintln!(
-            "draw_ylabel: {}, {:?}",
-            height,
-            ticks.iter().map(|t| t.tick_start).collect::<Vec<_>>()
-        );
         let layout = Layout(LayoutElem::Horizontal(vec![
             LayoutElem::Rect {
                 id: Some("seq_names".to_string()),
