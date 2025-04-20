@@ -1,17 +1,29 @@
+use crate::Direction;
+use crate::layout::{Layout, LayoutElem, RectAnchor};
 use anyhow::Result;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;
 use plotters::style::text_anchor::{HPos, Pos, VPos};
-use plotters_backend::DrawingErrorKind;
+use plotters_backend::{BackendStyle, DrawingErrorKind};
 use std::ops::Range;
 
+#[derive(Clone)]
+pub struct AxisAppearance<'a> {
+    pub axis_thickness: u32,
+    pub large_tick_length: u32,
+    pub small_tick_length: u32,
+    pub label_setback: u32,
+    pub label_style: TextStyle<'a>,
+    pub fit_in_box: bool,
+}
+
 #[derive(Copy, Clone, Debug)]
-pub struct Axis {
-    base_per_pixel: u32,
-    label_period: u32,
-    pitch_in_bases: u32,
-    pixels_per_pitch: f64,
-    subunit: u32,
+pub(crate) struct Axis {
+    pub base_per_pixel: u32,
+    pub label_period: u32,
+    pub pitch_in_bases: u32,
+    pub pixels_per_pitch: f64,
+    pub subunit: u32,
 }
 
 impl Axis {
@@ -43,27 +55,18 @@ impl Axis {
 }
 
 #[derive(Clone)]
-pub struct AxisAppearance<'a> {
-    pub large_tick_length: u32,
-    pub small_tick_length: u32,
-    pub label_setback: u32,
+pub(crate) struct Tick<'a> {
+    pub tick_start: (i32, i32),
+    pub tick_end: (i32, i32),
+    pub label_pos: (i32, i32),
+    pub label_anchor: Pos,
     pub label_style: TextStyle<'a>,
-    pub fit_in_box: bool,
-}
-
-#[derive(Clone)]
-struct Tick<'a> {
-    tick_start: (i32, i32),
-    tick_end: (i32, i32),
-    label_pos: (i32, i32),
-    label_anchor: Pos,
-    label_style: TextStyle<'a>,
-    label: String,
-    show_label: bool,
+    pub label: String,
+    pub show_label: bool,
 }
 
 impl<'a> Tick<'a> {
-    fn build_vec<F>(
+    pub fn build_vec<F>(
         root: (i32, i32),
         range: Range<usize>,
         axis_direction: Direction,
@@ -212,6 +215,114 @@ where
             let pos = (pos.0 + self.label_pos.0, pos.1 + self.label_pos.1);
             backend.draw_text(&self.label, style, pos)?;
         }
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct LengthScale<'a> {
+    len: u32,
+    axis: Axis,
+    app: &'a AxisAppearance<'a>,
+}
+
+impl<'a> LengthScale<'a> {
+    pub fn new(base_per_pixel: usize, desired_length: usize, axis_appearance: &'a AxisAppearance) -> LengthScale<'a> {
+        let base_per_pixel = base_per_pixel as u32;
+        let desired_length = desired_length as u32;
+        let axis = Axis::new(base_per_pixel, desired_length);
+        let len = (axis.label_period * axis.pitch_in_bases).div_ceil(desired_length) * desired_length;
+        LengthScale {
+            len,
+            axis,
+            app: axis_appearance,
+        }
+    }
+
+    pub fn get_dim(&self) -> (u32, u32) {
+        let w = self.len + 1;
+        let h = self.app.large_tick_length + self.app.axis_thickness + self.app.label_setback + self.app.label_style.font.get_size() as u32;
+        (w, h)
+    }
+}
+
+impl<'a> PointCollection<'a, (i32, i32)> for &'a LengthScale<'_> {
+    type Point = &'a (i32, i32);
+    type IntoIter = std::iter::Once<&'a (i32, i32)>;
+
+    fn point_iter(self) -> Self::IntoIter {
+        std::iter::once(&(0, 0))
+    }
+}
+
+impl<DB> Drawable<DB> for LengthScale<'_>
+where
+    DB: DrawingBackend,
+{
+    fn draw<I>(&self, pos: I, backend: &mut DB, _: (u32, u32)) -> Result<(), DrawingErrorKind<DB::ErrorType>>
+    where
+        I: Iterator<Item = (i32, i32)>,
+    {
+        let mut pos = pos;
+        let pos = pos.next().unwrap();
+        let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
+
+        // ticks
+        let ticks = Tick::build_vec(
+            (0, 0),
+            0..self.len as usize,
+            Direction::Right,
+            Direction::Down,
+            &self.axis,
+            self.app,
+            |i, subunit| format!("{:.1}", i as f64 / subunit as f64),
+        );
+        let width = ticks.last().unwrap().tick_start.0 as u32 + 1;
+
+        // compose layout using the width determined above
+        let layout = Layout(LayoutElem::Vertical(vec![
+            LayoutElem::Rect {
+                id: Some("up_ticks".to_string()),
+                width,
+                height: self.app.large_tick_length,
+            },
+            LayoutElem::Rect {
+                id: Some("axis".to_string()),
+                width,
+                height: self.app.axis_thickness,
+            },
+            LayoutElem::Rect {
+                id: Some("down_ticks".to_string()),
+                width,
+                height: self.app.large_tick_length,
+            },
+        ]));
+
+        // extend the first and last ticks upward
+        let mut ticks = ticks;
+        let adj = self.app.large_tick_length as i32 + self.app.axis_thickness as i32;
+        if let Some(tick) = ticks.first_mut() {
+            tick.tick_start.1 -= adj;
+        }
+        if let Some(tick) = ticks.last_mut() {
+            tick.label = format!("{} {}bp", &tick.label, self.axis.get_subunit_text());
+            tick.tick_start.1 -= adj;
+        }
+
+        let range = layout.get_range("down_ticks").unwrap();
+        let pos = shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft));
+        for tick in &ticks {
+            tick.draw(std::iter::once(pos), backend, (0, 0))?;
+        }
+
+        // draw axis
+        let range = layout.get_range("axis").unwrap();
+        backend.draw_rect(
+            shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft)),
+            shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight)),
+            &BLACK.color(),
+            true,
+        )?;
         Ok(())
     }
 }

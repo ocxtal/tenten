@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @brief dotplot plane data structure
 
-use crate::seq::Sequence;
+use crate::seq::SequenceRange;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
@@ -10,8 +10,8 @@ use std::ops::Range;
 pub struct BlockTile {
     hpx: Vec<u32>,
     vpx: Vec<u32>,
-    rseq: Vec<Sequence>,
-    qseq: Vec<Sequence>,
+    rseq: Vec<SequenceRange>,
+    qseq: Vec<SequenceRange>,
     blocks: Vec<Block>,
 }
 
@@ -24,11 +24,11 @@ impl BlockTile {
         &self.vpx
     }
 
-    pub fn horizontal_seqs(&self) -> &[Sequence] {
+    pub fn horizontal_seqs(&self) -> &[SequenceRange] {
         &self.rseq
     }
 
-    pub fn vertical_seqs(&self) -> &[Sequence] {
+    pub fn vertical_seqs(&self) -> &[SequenceRange] {
         &self.qseq
     }
 
@@ -70,7 +70,7 @@ pub struct Block {
 }
 
 impl Block {
-    fn new(r: &Sequence, q: &Sequence, base_per_pixel: usize, pair_id: usize) -> Block {
+    fn new(r: &SequenceRange, q: &SequenceRange, base_per_pixel: usize, pair_id: usize) -> Block {
         let width = r.range.len().div_ceil(base_per_pixel);
         let height = q.range.len().div_ceil(base_per_pixel);
         Block {
@@ -106,8 +106,8 @@ impl Block {
 
 #[derive(Debug)]
 pub struct BlockBin {
-    rseq: Vec<Sequence>,
-    qseq: Vec<Sequence>,
+    rseq: Vec<SequenceRange>,
+    qseq: Vec<SequenceRange>,
     rdedup: HashSet<String>,
     qdedup: HashSet<String>,
     rmap: HashMap<String, Vec<usize>>,
@@ -119,7 +119,7 @@ pub struct BlockBin {
 }
 
 impl BlockBin {
-    pub fn new(rseq: &[Sequence], qseq: &[Sequence], base_per_pixel: usize) -> BlockBin {
+    pub fn new(rseq: &[SequenceRange], qseq: &[SequenceRange], base_per_pixel: usize) -> BlockBin {
         log::debug!("BlockBin created");
         let mut bin = BlockBin {
             rseq: Vec::new(),
@@ -146,7 +146,7 @@ impl BlockBin {
         !self.rseq.is_empty() && !self.qseq.is_empty()
     }
 
-    pub fn add_reference(&mut self, r: &Sequence) {
+    pub fn add_reference(&mut self, r: &SequenceRange) {
         if !self.rdedup.insert(r.to_string()) {
             return;
         }
@@ -170,7 +170,7 @@ impl BlockBin {
         log::debug!("reference added: {:?}, {:}", &r.name, self.tot_size);
     }
 
-    pub fn add_query(&mut self, q: &Sequence) {
+    pub fn add_query(&mut self, q: &SequenceRange) {
         if !self.qdedup.insert(q.to_string()) {
             return;
         }

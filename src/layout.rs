@@ -96,6 +96,18 @@ impl RectPosition {
 }
 
 impl LayoutElem {
+    pub fn new_rect(width: u32, height: u32) -> LayoutElem {
+        LayoutElem::Rect { id: None, width, height }
+    }
+
+    pub fn new_rect_with_id(width: u32, height: u32, id: &str) -> LayoutElem {
+        LayoutElem::Rect {
+            id: Some(id.to_string()),
+            width,
+            height,
+        }
+    }
+
     pub fn get_dim(&self) -> (u32, u32) {
         match self {
             LayoutElem::Rect { width, height, .. } => (*width, *height),

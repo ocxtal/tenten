@@ -1,24 +1,35 @@
-use crate::seq::Sequence;
+use crate::color::{ColorPicker, DensityColorMap};
+use crate::sequence::SequenceRange;
 use anyhow::Result;
-use std::ops::Range;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;
-use plotters_backend::DrawingErrorKind;
+use plotters_backend::{BackendStyle, DrawingErrorKind};
+use std::ops::Range;
 
 #[derive(Debug, Default)]
 pub struct DotPlane {
-    cnt: Vec<[u32; 2]>,
+    pub(crate) cnt: Vec<[u32; 2]>,
     rrange: Range<usize>,
     qrange: Range<usize>,
-    width: usize,
-    height: usize,
-    base_per_pixel: usize,
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) base_per_pixel: usize,
     picker: ColorPicker,
-    pair_id: usize,
+    pub(crate) pair_id: usize,
 }
 
 impl DotPlane {
-    fn new(r: &Sequence, q: &Sequence, base_per_pixel: usize, color_map: &DensityColorMap, pair_id: usize) -> DotPlane {
+    pub fn new(r: &SequenceRange, q: &SequenceRange, base_per_pixel: usize, color_map: &DensityColorMap) -> DotPlane {
+        Self::with_pair_id(r, q, base_per_pixel, color_map, 0)
+    }
+
+    pub fn with_pair_id(
+        r: &SequenceRange,
+        q: &SequenceRange,
+        base_per_pixel: usize,
+        color_map: &DensityColorMap,
+        pair_id: usize,
+    ) -> DotPlane {
         let width = r.range.len().div_ceil(base_per_pixel);
         let height = q.range.len().div_ceil(base_per_pixel);
         DotPlane {
@@ -33,7 +44,7 @@ impl DotPlane {
         }
     }
 
-    fn append_seed(&mut self, rpos: usize, qpos: usize, is_rev: bool) {
+    pub fn append_seed(&mut self, rpos: usize, qpos: usize, is_rev: bool) {
         if !self.rrange.contains(&rpos) || !self.qrange.contains(&qpos) {
             return;
         }
@@ -48,12 +59,12 @@ impl DotPlane {
         self.cnt[qpos * self.width + rpos][is_rev as usize] += 1;
     }
 
-    pub fn count(&self) -> usize {
+    pub fn get_seed_count(&self) -> usize {
         self.cnt.iter().map(|x| x[0] as usize + x[1] as usize).sum::<usize>()
     }
 }
 
-impl<'a> PointCollection<'a, (i32, i32)> for &'a DotPlane<'_> {
+impl<'a> PointCollection<'a, (i32, i32)> for &'a DotPlane {
     type Point = &'a (i32, i32);
     type IntoIter = std::iter::Once<&'a (i32, i32)>;
 
@@ -62,7 +73,7 @@ impl<'a> PointCollection<'a, (i32, i32)> for &'a DotPlane<'_> {
     }
 }
 
-impl<DB> Drawable<DB> for DotPlane<'_>
+impl<DB> Drawable<DB> for DotPlane
 where
     DB: DrawingBackend,
 {

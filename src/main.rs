@@ -1,12 +1,13 @@
 use clap::Parser;
+use plotters::prelude::*;
 use std::io::{BufRead, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use tempfile::NamedTempFile;
-use tenten::block::{BlockBin, BlockTile};
 use tenten::parser::{SeedParser, SeedToken};
-use tenten::plotter::plot;
-use tenten::seq::{RangeFormat, Sequence, filter_range, load_range};
+use tenten::{
+    AxisAppearance, DensityColorMap, DotPlot, DotPlotAppearance, RGBColor, RangeFormat, SequenceRange, TextStyle, load_sequence_range, plot,
+};
 
 #[derive(Clone, Debug, Parser)]
 #[command(version)]
@@ -112,6 +113,14 @@ pub struct Args {
     pub split_plot: bool,
 
     #[clap(
+        short = 'S',
+        long,
+        help = "Assume the seed generator output is sorted (reduces memory usage when --split-plot)",
+        default_value = "false"
+    )]
+    pub sorted: bool,
+
+    #[clap(
         short = 'T',
         long,
         help = "Print plot to terminal (encoded to iTerm2 image format)",
@@ -194,32 +203,34 @@ impl Read for SeedGeneratorCommand {
     }
 }
 
-struct Context {
+struct Context<'a> {
     basename: String,
-    rseq: Vec<Sequence>,
-    qseq: Vec<Sequence>,
-    bin: BlockBin,
+    rseq: Vec<SequenceRange>,
+    qseq: Vec<SequenceRange>,
+    dotplot: DotPlot<'a>,
+    color_map: &'a DensityColorMap,
+    appearance: &'a DotPlotAppearance<'a>,
     args: Args,
 }
 
-impl Context {
-    fn new(args: &Args) -> Self {
+impl<'a> Context<'a> {
+    fn new(args: &Args, color_map: &'a DensityColorMap, appearance: &'a DotPlotAppearance<'a>) -> Self {
         let (mut rseq, mut qseq) = if let Some(query) = &args.query {
-            let rseq = load_range(&args.reference, &RangeFormat::Fasta).unwrap();
-            let qseq = load_range(query, &RangeFormat::Fasta).unwrap();
+            let rseq = load_sequence_range(&args.reference, &RangeFormat::Fasta).unwrap();
+            let qseq = load_sequence_range(query, &RangeFormat::Fasta).unwrap();
             (rseq, qseq)
         } else {
             (Vec::new(), Vec::new())
         };
 
-        if let Some(reference_range) = &args.reference_range {
-            let rcrop = load_range(reference_range, &args.reference_range_format).unwrap();
-            rseq = filter_range(&rseq, &rcrop);
-        }
-        if let Some(query_range) = &args.query_range {
-            let qcrop = load_range(query_range, &args.query_range_format).unwrap();
-            qseq = filter_range(&qseq, &qcrop);
-        }
+        // if let Some(reference_range) = &args.reference_range {
+        //     let rcrop = load_sequence_range(reference_range, &args.reference_range_format).unwrap();
+        //     rseq = filter_range(&rseq, &rcrop);
+        // }
+        // if let Some(query_range) = &args.query_range {
+        //     let qcrop = load_sequence_range(query_range, &args.query_range_format).unwrap();
+        //     qseq = filter_range(&qseq, &qcrop);
+        // }
         let (rseq, qseq) = if args.swap_generator { (qseq, rseq) } else { (rseq, qseq) };
 
         log::debug!("reference ranges: {rseq:?}");
@@ -231,34 +242,36 @@ impl Context {
             args.output.clone()
         };
 
-        let bin = BlockBin::new(&rseq, &qseq, args.base_per_pixel);
+        let dotplot = DotPlot::new(&rseq, &qseq, args.base_per_pixel, color_map, appearance);
         Context {
             basename,
             rseq,
             qseq,
-            bin,
+            dotplot,
+            color_map,
+            appearance,
             args: args.clone(),
         }
     }
 
-    fn plot_file(&self, tile: &BlockTile) {
+    fn plot_file(&self, dotplot: &DotPlot) {
         // format name
         let name = if self.args.split_plot {
             format!(
                 "{}.{}.{}.png",
                 &self.basename,
-                tile.horizontal_seqs()[0].to_path_string(),
-                tile.vertical_seqs()[0].to_path_string()
+                dotplot.references()[0].to_path_string(),
+                dotplot.queries()[0].to_path_string()
             )
         } else {
             format!("{}.png", &self.basename)
         };
-        plot(&name, tile).unwrap();
+        plot(&name, dotplot).unwrap();
     }
 
-    fn plot_iterm2(&self, tile: &BlockTile) {
+    fn plot_iterm2(&self, dotplot: &DotPlot) {
         let mut file = NamedTempFile::with_suffix(".png").unwrap();
-        plot(file.path().to_str().unwrap(), tile).unwrap();
+        plot(file.path().to_str().unwrap(), dotplot).unwrap();
 
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
@@ -274,58 +287,59 @@ impl Context {
         println!("{encoded}");
     }
 
-    fn plot(&self, tile: &BlockTile) {
-        let count = tile.count();
+    fn plot(&self, dotplot: &DotPlot) {
+        let count = dotplot.get_seed_count();
         if count < self.args.min_count {
             log::info!(
                 "skip {:?} x {:?} as seed count {} < {}",
-                tile.horizontal_seqs(),
-                tile.vertical_seqs(),
+                dotplot.references(),
+                dotplot.queries(),
                 count,
                 self.args.min_count
             );
             return;
         }
         if self.args.iterm2 {
-            self.plot_iterm2(tile);
+            self.plot_iterm2(dotplot);
         } else {
-            self.plot_file(tile);
+            self.plot_file(dotplot);
         }
     }
 
     fn flush(&mut self) {
-        let bin = std::mem::replace(&mut self.bin, BlockBin::new(&self.rseq, &self.qseq, self.args.base_per_pixel));
+        let dotplot = std::mem::replace(
+            &mut self.dotplot,
+            DotPlot::new(&self.rseq, &self.qseq, self.args.base_per_pixel, self.color_map, self.appearance),
+        );
         if self.args.split_plot {
-            for bin in bin.split() {
-                let tile = bin.into_tile();
-                self.plot(&tile);
+            for dotplot in dotplot.split() {
+                self.plot(&dotplot);
             }
         } else {
-            let tile = bin.into_tile();
-            self.plot(&tile);
+            self.plot(&dotplot);
         }
     }
 
-    fn add_reference(&mut self, r: &Sequence) {
-        if self.args.split_plot && self.bin.has_plane() {
+    fn add_reference(&mut self, r: &SequenceRange) {
+        if self.args.split_plot && self.args.sorted && self.dotplot.has_plane() {
             self.flush();
         }
         if self.rseq.is_empty() {
-            self.bin.add_reference(r);
+            self.dotplot.add_reference(r);
         }
     }
 
-    fn add_query(&mut self, q: &Sequence) {
-        if self.args.split_plot && self.bin.has_plane() {
+    fn add_query(&mut self, q: &SequenceRange) {
+        if self.args.split_plot && self.args.sorted && self.dotplot.has_plane() {
             self.flush();
         }
         if self.qseq.is_empty() {
-            self.bin.add_query(q);
+            self.dotplot.add_query(q);
         }
     }
 
     fn append_seed(&mut self, rname: &str, rpos: usize, is_rev: bool, qname: &str, qpos: usize) {
-        self.bin.append_seed(rname, rpos, is_rev, qname, qpos);
+        self.dotplot.append_seed(rname, rpos, is_rev, qname, qpos);
     }
 
     fn process_token(&mut self, token: SeedToken) {
@@ -379,8 +393,39 @@ fn main() {
     };
     let stream = std::io::BufReader::new(stream);
 
+    let min_density = args.min_density.max(0.000001);
+    let color_map = DensityColorMap {
+        palette: [RGBColor(255, 0, 64), RGBColor(0, 64, 255)],
+        max_density: args.density * args.density / min_density,
+        min_density: min_density,
+    };
+
+    // create dotplot
+    let text_style = TextStyle::from(("sans-serif", 12).into_font()).color(&BLACK);
+    let axis_appearance = AxisAppearance {
+        axis_thickness: 1,
+        large_tick_length: 3,
+        small_tick_length: 1,
+        label_setback: 8,
+        label_style: text_style.clone(),
+        fit_in_box: true,
+    };
+    let appearance = DotPlotAppearance {
+        spacer_thickness: 1,
+        desired_tick_pitch: 25,
+
+        x_label_area_size: 35,
+        x_axis_appearance: axis_appearance.clone(),
+        x_seq_name_style: text_style.clone(),
+        x_seq_name_setback: 20,
+
+        y_label_area_size: 50,
+        y_axis_appearance: axis_appearance.clone(),
+        y_seq_name_style: text_style.clone(),
+        y_seq_name_setback: 35,
+    };
     // parse the stream
-    let mut ctx = Context::new(&args);
+    let mut ctx = Context::new(&args, &color_map, &appearance);
     let mut parser = SeedParser::new(stream.lines(), args.swap_generator);
     while let Some(token) = parser.next() {
         ctx.process_token(token);
