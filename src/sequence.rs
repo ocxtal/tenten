@@ -17,30 +17,30 @@ pub enum RangeFormat {
 }
 
 #[derive(Clone, Default)]
-pub struct Seq {
+pub struct Sequence {
     pub name: String,
     pub range: Range<usize>,
 }
 
-impl Seq {
+impl Sequence {
     pub fn to_path_string(&self) -> String {
         format!("{}_{}_{}", self.name, self.range.start, self.range.end)
     }
 }
 
-impl fmt::Display for Seq {
+impl fmt::Display for Sequence {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}:{}-{}", self.name, self.range.start, self.range.end)
     }
 }
 
-impl fmt::Debug for Seq {
+impl fmt::Debug for Sequence {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}:{}-{}", self.name, self.range.start, self.range.end)
     }
 }
 
-fn load_range_fasta(file: &str) -> Result<Vec<Seq>> {
+fn load_range_fasta(file: &str) -> Result<Vec<Sequence>> {
     let file = std::fs::File::open(file)?;
     let file = std::io::BufReader::new(file);
 
@@ -50,7 +50,7 @@ fn load_range_fasta(file: &str) -> Result<Vec<Seq>> {
         let line = line?;
         if line.starts_with('>') {
             if let Some(name) = std::mem::take(&mut name) {
-                v.push(Seq { name, range: 0..len });
+                v.push(Sequence { name, range: 0..len });
             }
 
             let cols = line.split_ascii_whitespace().collect::<Vec<_>>();
@@ -61,13 +61,13 @@ fn load_range_fasta(file: &str) -> Result<Vec<Seq>> {
         }
     }
     if let Some(name) = std::mem::take(&mut name) {
-        v.push(Seq { name, range: 0..len });
+        v.push(Sequence { name, range: 0..len });
     }
 
     Ok(v)
 }
 
-fn load_range_bed(file: &str) -> Result<Vec<Seq>> {
+fn load_range_bed(file: &str) -> Result<Vec<Sequence>> {
     let file = std::fs::File::open(file)?;
     let file = std::io::BufReader::new(file);
 
@@ -82,12 +82,12 @@ fn load_range_bed(file: &str) -> Result<Vec<Seq>> {
         let name = cols[0].to_string();
         let start = cols[1].parse::<usize>()?;
         let end = cols[2].parse::<usize>()?;
-        v.push(Seq { name, range: start..end })
+        v.push(Sequence { name, range: start..end })
     }
     Ok(v)
 }
 
-fn load_range_text(file: &str) -> Result<Vec<Seq>> {
+fn load_range_text(file: &str) -> Result<Vec<Sequence>> {
     let file = std::fs::File::open(file)?;
     let file = std::io::BufReader::new(file);
 
@@ -106,12 +106,12 @@ fn load_range_text(file: &str) -> Result<Vec<Seq>> {
         let name = cols[0].to_string();
         let start = pos[0].parse::<usize>()?;
         let end = pos[1].parse::<usize>()?;
-        v.push(Seq { name, range: start..end })
+        v.push(Sequence { name, range: start..end })
     }
     Ok(v)
 }
 
-pub fn load_range(file: &str, format: &RangeFormat) -> Result<Vec<Seq>> {
+pub fn load_range(file: &str, format: &RangeFormat) -> Result<Vec<Sequence>> {
     match format {
         RangeFormat::Fasta => load_range_fasta(file),
         RangeFormat::Bed => load_range_bed(file),
@@ -127,6 +127,6 @@ pub fn load_range(file: &str, format: &RangeFormat) -> Result<Vec<Seq>> {
     }
 }
 
-pub fn filter_range(ranges: &[Seq], _filter: &[Seq]) -> Vec<Seq> {
+pub fn filter_range(ranges: &[Sequence], _filter: &[Sequence]) -> Vec<Sequence> {
     ranges.to_vec()
 }

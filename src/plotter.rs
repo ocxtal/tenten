@@ -4,7 +4,7 @@
 
 use crate::block::{Block, BlockTile};
 use crate::layout::{Layout, LayoutElem, LayoutMargin, RectAnchor, StructuredDrawingArea};
-use crate::seq::Seq;
+use crate::seq::Sequence;
 use anyhow::Result;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;
@@ -44,87 +44,6 @@ impl Breakpoints {
 
     fn pixels(&self) -> u32 {
         *self.v.last().unwrap()
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct ColorMap {
-    pub palette: [RGBColor; 2],
-    pub max_density: f64,
-    pub min_density: f64,
-}
-
-impl ColorMap {
-    fn to_picker(self, base_per_pixel: f64) -> ColorPicker {
-        let expansion = (1000.0 / base_per_pixel).powf(2.0);
-        let max_count = self.max_density * expansion;
-        let min_count = self.min_density * expansion;
-        ColorPicker {
-            palette: self.palette,
-            expansion,
-            offset: min_count.log2(),
-            scale: 1.0 / (max_count.log2() - min_count.log2()),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-struct ColorPicker {
-    palette: [RGBColor; 2],
-    expansion: f64,
-    offset: f64,
-    scale: f64,
-}
-
-impl ColorPicker {
-    fn get_color(&self, palette_index: usize, count: u32) -> RGBAColor {
-        let intensity = self.scale * ((self.expansion * count as f64).log2() - self.offset);
-        self.palette[palette_index].mix(intensity.clamp(0.0, 1.0))
-    }
-}
-
-// wrapper of Block to make drawable on Plotter's DrawingArea
-#[derive(Debug)]
-struct DrawableBlock<'a> {
-    block: &'a Block,
-    picker: &'a ColorPicker,
-}
-
-impl<'a> DrawableBlock<'a> {
-    fn new(block: &'a Block, picker: &'a ColorPicker) -> DrawableBlock<'a> {
-        DrawableBlock { block, picker }
-    }
-}
-
-impl<'a> PointCollection<'a, (i32, i32)> for &'a DrawableBlock<'_> {
-    type Point = &'a (i32, i32);
-    type IntoIter = std::iter::Once<&'a (i32, i32)>;
-
-    fn point_iter(self) -> Self::IntoIter {
-        std::iter::once(&(0, 0)) // always anchored at the top left corner
-    }
-}
-
-impl<DB> Drawable<DB> for DrawableBlock<'_>
-where
-    DB: DrawingBackend,
-{
-    fn draw<I>(&self, pos: I, backend: &mut DB, _: (u32, u32)) -> Result<(), DrawingErrorKind<DB::ErrorType>>
-    where
-        I: Iterator<Item = (i32, i32)>,
-    {
-        let mut pos = pos;
-        let pos = pos.next().unwrap();
-        for (y, line) in self.block.cnt.chunks(self.block.width).rev().enumerate() {
-            for (x, cnt) in line.iter().enumerate() {
-                let cf = self.picker.get_color(0, cnt[0]).color();
-                backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), cf)?;
-
-                let cr = self.picker.get_color(1, cnt[1]).color();
-                backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), cr)?;
-            }
-        }
-        Ok(())
     }
 }
 
@@ -680,13 +599,13 @@ impl<'a> DotPlot<'a> {
         &self,
         pos: (i32, i32),
         backend: &mut DB,
-        seq: &Seq,
+        seq: &Sequence,
         range_mapper: FM,
         label_formatter: FF,
     ) -> Result<(), DrawingErrorKind<DB::ErrorType>>
     where
         DB: DrawingBackend,
-        FM: Fn(&Seq) -> Range<usize>,
+        FM: Fn(&Sequence) -> Range<usize>,
         FF: Fn(u32, u32) -> String,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
@@ -747,7 +666,7 @@ impl<'a> DotPlot<'a> {
     ) -> Result<(), DrawingErrorKind<DB::ErrorType>>
     where
         DB: DrawingBackend,
-        FM: Fn(&Seq) -> Range<usize>,
+        FM: Fn(&Sequence) -> Range<usize>,
         FF: Fn(u32, u32) -> String,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
@@ -761,13 +680,13 @@ impl<'a> DotPlot<'a> {
         &self,
         pos: (i32, i32),
         backend: &mut DB,
-        seq: &Seq,
+        seq: &Sequence,
         range_mapper: FM,
         label_formatter: FF,
     ) -> Result<(), DrawingErrorKind<DB::ErrorType>>
     where
         DB: DrawingBackend,
-        FM: Fn(&Seq) -> Range<usize>,
+        FM: Fn(&Sequence) -> Range<usize>,
         FF: Fn(u32, u32) -> String,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
@@ -833,7 +752,7 @@ impl<'a> DotPlot<'a> {
     ) -> Result<(), DrawingErrorKind<DB::ErrorType>>
     where
         DB: DrawingBackend,
-        FM: Fn(&Seq) -> Range<usize>,
+        FM: Fn(&Sequence) -> Range<usize>,
         FF: Fn(u32, u32) -> String,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);

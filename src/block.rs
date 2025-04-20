@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @brief dotplot plane data structure
 
-use crate::seq::Seq;
+use crate::seq::Sequence;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
@@ -10,8 +10,8 @@ use std::ops::Range;
 pub struct BlockTile {
     hpx: Vec<u32>,
     vpx: Vec<u32>,
-    rseq: Vec<Seq>,
-    qseq: Vec<Seq>,
+    rseq: Vec<Sequence>,
+    qseq: Vec<Sequence>,
     blocks: Vec<Block>,
 }
 
@@ -24,11 +24,11 @@ impl BlockTile {
         &self.vpx
     }
 
-    pub fn horizontal_seqs(&self) -> &[Seq] {
+    pub fn horizontal_seqs(&self) -> &[Sequence] {
         &self.rseq
     }
 
-    pub fn vertical_seqs(&self) -> &[Seq] {
+    pub fn vertical_seqs(&self) -> &[Sequence] {
         &self.qseq
     }
 
@@ -60,17 +60,17 @@ impl BlockTile {
 
 #[derive(Debug, Default)]
 pub struct Block {
-    pub cnt: Vec<[u32; 2]>,
-    pub rrange: Range<usize>,
-    pub qrange: Range<usize>,
-    pub width: usize,
-    pub height: usize,
-    pub base_per_pixel: usize,
+    cnt: Vec<[u32; 2]>,
+    rrange: Range<usize>,
+    qrange: Range<usize>,
+    width: usize,
+    height: usize,
+    base_per_pixel: usize,
     pair_id: usize,
 }
 
 impl Block {
-    pub fn new(r: &Seq, q: &Seq, base_per_pixel: usize, pair_id: usize) -> Block {
+    fn new(r: &Sequence, q: &Sequence, base_per_pixel: usize, pair_id: usize) -> Block {
         let width = r.range.len().div_ceil(base_per_pixel);
         let height = q.range.len().div_ceil(base_per_pixel);
         Block {
@@ -84,7 +84,7 @@ impl Block {
         }
     }
 
-    pub fn append_seed(&mut self, rpos: usize, qpos: usize, is_rev: bool) {
+    fn append_seed(&mut self, rpos: usize, qpos: usize, is_rev: bool) {
         if !self.rrange.contains(&rpos) || !self.qrange.contains(&qpos) {
             return;
         }
@@ -106,8 +106,8 @@ impl Block {
 
 #[derive(Debug)]
 pub struct BlockBin {
-    pub rseq: Vec<Seq>,
-    pub qseq: Vec<Seq>,
+    rseq: Vec<Sequence>,
+    qseq: Vec<Sequence>,
     rdedup: HashSet<String>,
     qdedup: HashSet<String>,
     rmap: HashMap<String, Vec<usize>>,
@@ -119,7 +119,7 @@ pub struct BlockBin {
 }
 
 impl BlockBin {
-    pub fn new(rseq: &[Seq], qseq: &[Seq], base_per_pixel: usize) -> BlockBin {
+    pub fn new(rseq: &[Sequence], qseq: &[Sequence], base_per_pixel: usize) -> BlockBin {
         log::debug!("BlockBin created");
         let mut bin = BlockBin {
             rseq: Vec::new(),
@@ -146,7 +146,7 @@ impl BlockBin {
         !self.rseq.is_empty() && !self.qseq.is_empty()
     }
 
-    pub fn add_reference(&mut self, r: &Seq) {
+    pub fn add_reference(&mut self, r: &Sequence) {
         if !self.rdedup.insert(r.to_string()) {
             return;
         }
@@ -170,7 +170,7 @@ impl BlockBin {
         log::debug!("reference added: {:?}, {:}", &r.name, self.tot_size);
     }
 
-    pub fn add_query(&mut self, q: &Seq) {
+    pub fn add_query(&mut self, q: &Sequence) {
         if !self.qdedup.insert(q.to_string()) {
             return;
         }

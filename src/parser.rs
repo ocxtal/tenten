@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @brief minimap2 seed dump (--print-seeds) parser
 
-use crate::seq::Seq;
+use crate::seq::Sequence;
 
 pub struct SeedParser<T>
 where
@@ -15,8 +15,8 @@ where
 
 #[derive(Debug)]
 pub enum SeedToken {
-    NewReference(Seq),
-    NewQuery(Seq),
+    NewReference(Sequence),
+    NewQuery(Sequence),
     Seed(String, usize, bool, String, usize),
 }
 
@@ -40,9 +40,9 @@ where
 
         self.query_cache = Some(name.clone());
         if self.swap {
-            Some(SeedToken::NewReference(Seq { name, range: 0..len }))
+            Some(SeedToken::NewReference(Sequence { name, range: 0..len }))
         } else {
-            Some(SeedToken::NewQuery(Seq { name, range: 0..len }))
+            Some(SeedToken::NewQuery(Sequence { name, range: 0..len }))
         }
     }
 
@@ -65,7 +65,7 @@ where
     }
 
     fn parse_seq(is_query: bool, line: &str) -> Option<SeedToken> {
-        let mut s = Seq::default();
+        let mut s = Sequence::default();
         for (i, col) in line.split('\t').enumerate() {
             match i {
                 0 => s.name = col.to_string(),

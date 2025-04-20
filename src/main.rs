@@ -6,7 +6,7 @@ use tempfile::NamedTempFile;
 use tenten::block::{BlockBin, BlockTile};
 use tenten::parser::{SeedParser, SeedToken};
 use tenten::plotter::plot;
-use tenten::seq::{RangeFormat, Seq, filter_range, load_range};
+use tenten::seq::{RangeFormat, Sequence, filter_range, load_range};
 
 #[derive(Clone, Debug, Parser)]
 #[command(version)]
@@ -196,8 +196,8 @@ impl Read for SeedGeneratorCommand {
 
 struct Context {
     basename: String,
-    rseq: Vec<Seq>,
-    qseq: Vec<Seq>,
+    rseq: Vec<Sequence>,
+    qseq: Vec<Sequence>,
     bin: BlockBin,
     args: Args,
 }
@@ -306,7 +306,7 @@ impl Context {
         }
     }
 
-    fn add_reference(&mut self, r: &Seq) {
+    fn add_reference(&mut self, r: &Sequence) {
         if self.args.split_plot && self.bin.has_plane() {
             self.flush();
         }
@@ -315,7 +315,7 @@ impl Context {
         }
     }
 
-    fn add_query(&mut self, q: &Seq) {
+    fn add_query(&mut self, q: &Sequence) {
         if self.args.split_plot && self.bin.has_plane() {
             self.flush();
         }
