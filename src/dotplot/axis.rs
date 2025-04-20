@@ -1,5 +1,5 @@
-use crate::Direction;
-use crate::layout::{Layout, LayoutElem, RectAnchor};
+use crate::dotplot::Direction;
+use crate::dotplot::layout::{Layout, LayoutElem, RectAnchor};
 use anyhow::Result;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;
@@ -228,11 +228,9 @@ pub struct LengthScale<'a> {
 
 impl<'a> LengthScale<'a> {
     pub fn new(base_per_pixel: usize, desired_length: usize, axis_appearance: &'a AxisAppearance) -> LengthScale<'a> {
-        eprintln!("base_per_pixel: {}, desired_length: {}", base_per_pixel, desired_length);
         let base_per_pixel = base_per_pixel as u32;
         let desired_length = desired_length as u32;
         let axis = Axis::new(base_per_pixel, desired_length);
-        eprintln!("axis: {:?}", axis);
         let len = (axis.label_period * axis.pitch_in_bases).div_ceil(desired_length) * desired_length;
         LengthScale {
             len,

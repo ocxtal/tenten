@@ -1,6 +1,6 @@
-use crate::Direction;
-use crate::axis::{Axis, AxisAppearance, Tick};
-use crate::layout::{Layout, LayoutElem, RectAnchor};
+use crate::dotplot::Direction;
+use crate::dotplot::axis::{Axis, AxisAppearance, Tick};
+use crate::dotplot::layout::{Layout, LayoutElem, RectAnchor};
 use anyhow::Result;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;

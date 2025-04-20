@@ -1,5 +1,5 @@
-use crate::color::{ColorPicker, DensityColorMap};
-use crate::sequence::SequenceRange;
+use crate::dotplot::color::{ColorPicker, DensityColorMap};
+use crate::dotplot::sequence::SequenceRange;
 use anyhow::Result;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;

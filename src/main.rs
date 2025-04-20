@@ -1,10 +1,12 @@
+mod parser;
+
+use crate::parser::{SeedParser, SeedToken};
 use clap::Parser;
 use plotters::prelude::*;
 use std::io::{BufRead, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use tempfile::NamedTempFile;
-use tenten::parser::{SeedParser, SeedToken};
 use tenten::{
     AxisAppearance, DensityColorMap, DotPlot, DotPlotAppearance, RGBColor, RangeFormat, SequenceRange, TextStyle, load_sequence_range, plot,
 };

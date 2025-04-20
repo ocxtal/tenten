@@ -2,7 +2,7 @@
 // @author Hajime Suzuki
 // @brief minimap2 seed dump (--print-seeds) parser
 
-use crate::sequence::SequenceRange;
+use tenten::SequenceRange;
 
 pub struct SeedParser<T>
 where
