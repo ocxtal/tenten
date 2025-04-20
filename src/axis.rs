@@ -228,9 +228,11 @@ pub struct LengthScale<'a> {
 
 impl<'a> LengthScale<'a> {
     pub fn new(base_per_pixel: usize, desired_length: usize, axis_appearance: &'a AxisAppearance) -> LengthScale<'a> {
+        eprintln!("base_per_pixel: {}, desired_length: {}", base_per_pixel, desired_length);
         let base_per_pixel = base_per_pixel as u32;
         let desired_length = desired_length as u32;
         let axis = Axis::new(base_per_pixel, desired_length);
+        eprintln!("axis: {:?}", axis);
         let len = (axis.label_period * axis.pitch_in_bases).div_ceil(desired_length) * desired_length;
         LengthScale {
             len,
@@ -240,7 +242,7 @@ impl<'a> LengthScale<'a> {
     }
 
     pub fn get_dim(&self) -> (u32, u32) {
-        let w = self.len + 1;
+        let w = self.len.div_ceil(self.axis.base_per_pixel) + 1;
         let h = self.app.large_tick_length + self.app.axis_thickness + self.app.label_setback + self.app.label_style.font.get_size() as u32;
         (w, h)
     }

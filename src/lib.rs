@@ -32,16 +32,15 @@ pub fn plot(name: &str, dotplot: &DotPlot) -> Result<()> {
         fit_in_box: false,
         ..appearance.x_axis_appearance.clone()
     };
-
-    // create length scale
-    let length_scale = LengthScale::new(
-        dotplot.base_per_pixel(),
-        5 * appearance.desired_tick_pitch as usize,
-        &scale_appearance,
-    );
-
-    // create color scale
+    let length_scale = LengthScale::new(dotplot.base_per_pixel(), appearance.desired_tick_pitch as usize, &scale_appearance);
     let color_scale = ColorScale::new(dotplot.color_map(), 200, &scale_appearance);
+
+    eprintln!(
+        "dim: {:?}, {:?}, {:?}",
+        dotplot.get_dim(),
+        length_scale.get_dim(),
+        color_scale.get_dim()
+    );
 
     let layout = Layout(LayoutElem::Margined {
         margin: LayoutMargin::uniform(20),
@@ -53,7 +52,7 @@ pub fn plot(name: &str, dotplot: &DotPlot) -> Result<()> {
                     height: 30,
                 },
                 LayoutElem::Margined {
-                    margin: LayoutMargin::uniform(10),
+                    margin: LayoutMargin::new(0, 30, 10, 10),
                     center: Box::new(LayoutElem::Rect {
                         id: Some("length_scale".to_string()),
                         width: length_scale.get_dim().0,
@@ -61,7 +60,7 @@ pub fn plot(name: &str, dotplot: &DotPlot) -> Result<()> {
                     }),
                 },
                 LayoutElem::Margined {
-                    margin: LayoutMargin::uniform(10),
+                    margin: LayoutMargin::new(0, 30, 10, 10),
                     center: Box::new(LayoutElem::Rect {
                         id: Some("color_scale".to_string()),
                         width: color_scale.get_dim().0,
