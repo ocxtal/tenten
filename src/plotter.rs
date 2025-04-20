@@ -274,7 +274,7 @@ impl<'a> Tick<'a> {
                 break;
             }
 
-            let thresh = pitch.pitch_in_bases * 2;
+            let thresh = pitch.pitch_in_bases * 3;
             let too_close_to_end = i <= range.start + thresh || i + thresh >= range.end;
             let is_large = next_n % pitch.label_period == 0;
             let show_label = is_large && !too_close_to_end;
@@ -303,17 +303,17 @@ impl<'a> Tick<'a> {
             pos
         };
         let pos = match axis_direction {
-            Direction::Up => (root.0, root.1 - pos),
+            Direction::Up => (root.0, root.1 - pos - 1),
             Direction::Down => (root.0, root.1 + pos),
-            Direction::Left => (root.0 - pos, root.1),
+            Direction::Left => (root.0 - pos - 1, root.1),
             Direction::Right => (root.0 + pos, root.1),
         };
         let len = if is_large { app.large_tick_length } else { app.small_tick_length } as i32;
         let (tick_start, tick_end) = match tick_direction {
-            Direction::Up => ((pos.0, pos.1 - len), (pos.0, pos.1)),
-            Direction::Down => ((pos.0, pos.1), (pos.0, pos.1 + len)),
-            Direction::Left => ((pos.0 - len, pos.1), (pos.0, pos.1)),
-            Direction::Right => ((pos.0, pos.1), (pos.0 + len, pos.1)),
+            Direction::Up => ((pos.0, pos.1 - len), (pos.0, pos.1 - 1)),
+            Direction::Down => ((pos.0, pos.1), (pos.0, pos.1 + len - 1)),
+            Direction::Left => ((pos.0 - len, pos.1), (pos.0 - 1, pos.1)),
+            Direction::Right => ((pos.0, pos.1), (pos.0 + len - 1, pos.1)),
         };
 
         let setback = app.label_setback as i32;
@@ -431,11 +431,12 @@ where
         I: Iterator<Item = (i32, i32)>,
     {
         let mut pos = pos;
-        let (base_x, base_y) = pos.next().unwrap();
+        let pos = pos.next().unwrap();
+        let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
 
         // ticks
         let ticks = Tick::build_vec(
-            (0, self.app.large_tick_length as i32 + self.thickness as i32),
+            (0, 0),
             &(0..self.len as usize),
             Direction::Right,
             Direction::Down,
@@ -443,10 +444,10 @@ where
             &self.app,
             |i, subunit| format!("{:.1}", i as f64 / subunit as f64),
         );
-        let width = ticks.last().unwrap().tick_start.0 as u32 + 2;
+        let width = ticks.last().unwrap().tick_start.0 as u32 + 1;
 
         // compose layout using the width determined above
-        let layout = Layout(LayoutElem::Horizontal(vec![
+        let layout = Layout(LayoutElem::Vertical(vec![
             LayoutElem::Rect {
                 id: Some("up_ticks".to_string()),
                 width,
@@ -476,16 +477,16 @@ where
         }
 
         let range = layout.get_range("down_ticks").unwrap();
-        let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        let pos = shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft));
         for tick in &ticks {
-            tick.draw(std::iter::once((base_x + x, base_y + y)), backend, (0, 0))?;
+            tick.draw(std::iter::once(pos), backend, (0, 0))?;
         }
 
         // draw axis
         let range = layout.get_range("axis").unwrap();
         backend.draw_rect(
-            range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft),
-            range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight),
+            shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft)),
+            shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight)),
             &BLACK.color(),
             true,
         )?;
@@ -540,7 +541,8 @@ where
         I: Iterator<Item = (i32, i32)>,
     {
         let mut pos = pos;
-        let (base_x, base_y) = pos.next().unwrap();
+        let pos = pos.next().unwrap();
+        let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
 
         // first build ticks (to determine actual width)
         let ticks = Tick::build_vec(
@@ -553,10 +555,10 @@ where
             |i, _| format!("{:.1}", self.color_map.max_density.powf(i as f64 / self.len as f64)),
         );
         let len = ticks.last().unwrap().tick_start.0;
-        let width = len as u32 + 2;
+        let width = len as u32 + 1;
 
         // compose layout using the width determined above
-        let layout = Layout(LayoutElem::Horizontal(vec![
+        let layout = Layout(LayoutElem::Vertical(vec![
             LayoutElem::Rect {
                 id: Some("fw".to_string()),
                 width,
@@ -575,27 +577,23 @@ where
         ]));
 
         // draw color scale
-        let (fw_x, fw_y) = layout
-            .get_range("fw")
-            .unwrap()
-            .get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
-        let (fw_x, fw_y) = (base_x + fw_x + 1, base_y + fw_y);
+        let range = layout.get_range("fw").unwrap();
+        let (fw_x, fw_y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        let fw_shift = |(x, y): (i32, i32)| shift((fw_x + x + 1, fw_y + y));
 
-        let (rv_x, rv_y) = layout
-            .get_range("rv")
-            .unwrap()
-            .get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
-        let (rv_x, rv_y) = (base_x + rv_x + 1, base_y + rv_y);
+        let range = layout.get_range("rv").unwrap();
+        let (rv_x, rv_y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        let rv_shift = |(x, y): (i32, i32)| shift((rv_x + x + 1, rv_y + y));
 
         let height = self.app.large_tick_length as i32;
         let picker = self.color_map.to_picker(self.pitch.base_per_pixel as f64);
         for i in 0..len {
             let cnt = self.color_map.max_density.powf(i as f64 / len as f64);
             let cf = picker.get_color(0, cnt as u32).color();
-            backend.draw_rect((fw_x + i, fw_y), (fw_x + i + 1, fw_y + height), &cf, true)?;
+            backend.draw_rect(fw_shift((i, 0)), fw_shift((i + 1, height)), &cf, true)?;
 
             let cr = picker.get_color(1, cnt as u32).color();
-            backend.draw_rect((rv_x + i, rv_y), (rv_x + i + 1, rv_y + height), &cr, true)?;
+            backend.draw_rect(rv_shift((i, 0)), rv_shift((i + 1, height)), &cr, true)?;
         }
 
         // draw ticks
@@ -609,23 +607,21 @@ where
             tick.tick_start.1 -= adj;
         }
 
-        let (x, y) = layout
-            .get_range("rv")
-            .unwrap()
-            .get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        let range = layout.get_range("rv").unwrap();
+        let pos = shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft));
         for (i, tick) in ticks.iter().enumerate() {
             let tick = Tick {
                 show_label: i % 2 == 0,
                 ..tick.clone()
             };
-            tick.draw(std::iter::once((base_x + x, base_y + y)), backend, (0, 0))?;
+            tick.draw(std::iter::once(pos), backend, (0, 0))?;
         }
 
         // draw axis
         let range = layout.get_range("axis").unwrap();
         backend.draw_rect(
-            range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft),
-            range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight),
+            shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft)),
+            shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight)),
             &BLACK.color(),
             true,
         )?;
@@ -687,7 +683,8 @@ impl<'a> DotPlot<'a> {
     where
         DB: DrawingBackend,
     {
-        let (base_x, base_y) = pos;
+        let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
+
         let layout = Layout(LayoutElem::Margined {
             margin: LayoutMargin::new(0, self.app.spacer_thickness, self.app.spacer_thickness, 0),
             center: Box::new(LayoutElem::Rect {
@@ -698,18 +695,18 @@ impl<'a> DotPlot<'a> {
         });
 
         let spacer_color = RGBColor(192, 208, 192).color();
-        for area in &[".top", ".top-left", ".left"] {
+        for area in &[".top", ".top-right", ".right"] {
             let range = layout.get_range(area).unwrap();
             backend.draw_rect(
-                range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft),
-                range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight),
+                shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft)),
+                shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight)),
                 &spacer_color,
                 true,
             )?;
         }
         let range = layout.get_range(".center").unwrap();
-        let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
-        DrawableBlock::new(block, &self.picker).draw(std::iter::once((base_x + x, base_y + y)), backend, (0, 0))?;
+        let pos = shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft));
+        DrawableBlock::new(block, &self.picker).draw(std::iter::once(pos), backend, (0, 0))?;
         Ok(())
     }
 
@@ -717,11 +714,14 @@ impl<'a> DotPlot<'a> {
     where
         DB: DrawingBackend,
     {
-        let (base_x, base_y) = pos;
-        for (i, y) in self.y_brks.as_anchor_slice().windows(2).rev().enumerate() {
+        let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
+
+        // eprintln!("draw_tile: {}, {}", base_x, base_y);
+        for (i, y) in self.y_brks.as_anchor_slice().windows(2).enumerate() {
             let blocks = self.tile.get_row(i).unwrap();
             for (x, block) in self.x_brks.as_anchor_slice().windows(2).zip(blocks.iter()) {
-                self.draw_block((base_x + x[0] as i32, base_y + y[0] as i32), backend, block)?;
+                // eprintln!("draw_block: {}, {}, {}", i, base_x + x[0] as i32, base_y - y[1] as i32);
+                self.draw_block(shift((x[0] as i32, -(y[1] as i32))), backend, block)?;
             }
         }
         Ok(())
@@ -740,18 +740,18 @@ impl<'a> DotPlot<'a> {
         FM: Fn(&Seq) -> Range<usize>,
         FF: Fn(u32, u32) -> String,
     {
-        let (base_x, base_y) = pos;
+        let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
         let ticks = Tick::build_vec(
             (0, 0),
             &range_mapper(seq),
-            Direction::Down,
             Direction::Right,
+            Direction::Down,
             &self.pitch,
             &self.app.x_tick_apparance,
             label_formatter,
         );
         let width = ticks.last().unwrap().tick_start.0.abs() as u32 + 1;
-        let layout = Layout(LayoutElem::Horizontal(vec![
+        let layout = Layout(LayoutElem::Vertical(vec![
             LayoutElem::Rect {
                 id: Some("axis".to_string()),
                 width,
@@ -770,26 +770,22 @@ impl<'a> DotPlot<'a> {
         ]));
         let range = layout.get_range("axis").unwrap();
         backend.draw_rect(
-            range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft),
-            range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight),
+            shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft)),
+            shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight)),
             &BLACK.color(),
             true,
         )?;
 
         let range = layout.get_range("ticks").unwrap();
-        let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        let pos = shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft));
         for tick in ticks {
-            tick.draw(std::iter::once((base_x + x, base_y + y)), backend, (0, 0))?;
+            tick.draw(std::iter::once(pos), backend, (0, 0))?;
         }
 
         let style = &self.app.x_seq_name_style.pos(Pos::new(HPos::Center, VPos::Top));
         let range = layout.get_range("seq_names").unwrap();
         let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
-        for (seq, bnd) in self.tile.horizontal_seqs().iter().zip(self.x_brks.as_anchor_slice().windows(2)) {
-            let offset = (bnd[0] + bnd[1]) / 2;
-            let pos = (base_x + x + offset as i32, base_y + y);
-            backend.draw_text(&seq.name, style, pos)?;
-        }
+        backend.draw_text(&seq.name, style, shift((x + width as i32 / 2, y)))?;
         Ok(())
     }
 
@@ -805,9 +801,10 @@ impl<'a> DotPlot<'a> {
         FM: Fn(&Seq) -> Range<usize>,
         FF: Fn(u32, u32) -> String,
     {
-        let (base_x, base_y) = pos;
+        let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
         for (x, seq) in self.x_brks.as_anchor_slice().windows(2).zip(self.tile.horizontal_seqs().iter()) {
-            self.draw_xlabel((base_x + x[0] as i32, base_y), backend, seq, &range_mapper, &label_formatter)?;
+            eprintln!("draw_xlabel: {}, {}", x[0], x[1]);
+            self.draw_xlabel(shift((x[0] as i32, 0)), backend, seq, &range_mapper, &label_formatter)?;
         }
         Ok(())
     }
@@ -825,7 +822,7 @@ impl<'a> DotPlot<'a> {
         FM: Fn(&Seq) -> Range<usize>,
         FF: Fn(u32, u32) -> String,
     {
-        let (base_x, base_y) = pos;
+        let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
         let ticks = Tick::build_vec(
             (0, 0),
             &range_mapper(seq),
@@ -835,11 +832,16 @@ impl<'a> DotPlot<'a> {
             &self.app.y_tick_appearance,
             label_formatter,
         );
-        let height = ticks.last().unwrap().tick_start.1.abs() as u32 + 1;
-        let layout = Layout(LayoutElem::Vertical(vec![
+        let height = ticks.last().unwrap().tick_start.1.abs() as u32;
+        eprintln!(
+            "draw_ylabel: {}, {:?}",
+            height,
+            ticks.iter().map(|t| t.tick_start).collect::<Vec<_>>()
+        );
+        let layout = Layout(LayoutElem::Horizontal(vec![
             LayoutElem::Rect {
-                id: Some("axis".to_string()),
-                width: self.app.axis_thickness,
+                id: Some("seq_names".to_string()),
+                width: 0,
                 height,
             },
             LayoutElem::Rect {
@@ -848,24 +850,24 @@ impl<'a> DotPlot<'a> {
                 height,
             },
             LayoutElem::Rect {
-                id: Some("seq_names".to_string()),
-                width: 0,
+                id: Some("axis".to_string()),
+                width: self.app.axis_thickness,
                 height,
             },
         ]));
 
         let range = layout.get_range("axis").unwrap();
         backend.draw_rect(
-            range.get_relative_pos(RectAnchor::BottomRight, RectAnchor::TopLeft),
-            range.get_relative_pos(RectAnchor::BottomRight, RectAnchor::BottomRight),
+            shift(range.get_relative_pos(RectAnchor::BottomRight, RectAnchor::TopLeft)),
+            shift(range.get_relative_pos(RectAnchor::BottomRight, RectAnchor::BottomRight)),
             &BLACK.color(),
             true,
         )?;
 
         let range = layout.get_range("ticks").unwrap();
-        let (x, y) = range.get_relative_pos(RectAnchor::BottomRight, RectAnchor::BottomRight);
+        let pos = shift(range.get_relative_pos(RectAnchor::BottomRight, RectAnchor::BottomRight));
         for tick in ticks {
-            tick.draw(std::iter::once((base_x + x, base_y + y)), backend, (0, 0))?;
+            tick.draw(std::iter::once(pos), backend, (0, 0))?;
         }
 
         let style = &self
@@ -875,11 +877,7 @@ impl<'a> DotPlot<'a> {
             .transform(FontTransform::Rotate270);
         let range = layout.get_range("seq_names").unwrap();
         let (x, y) = range.get_relative_pos(RectAnchor::BottomRight, RectAnchor::BottomRight);
-        for (seq, bnd) in self.tile.vertical_seqs().iter().zip(self.y_brks.as_anchor_slice().windows(2)) {
-            let offset = (bnd[0] + bnd[1]) / 2;
-            let pos = (base_x + x, base_y + y - offset as i32);
-            backend.draw_text(&seq.name, style, pos)?;
-        }
+        backend.draw_text(&seq.name, style, shift((x, y - height as i32 / 2)))?;
         Ok(())
     }
 
@@ -895,9 +893,9 @@ impl<'a> DotPlot<'a> {
         FM: Fn(&Seq) -> Range<usize>,
         FF: Fn(u32, u32) -> String,
     {
-        let (base_x, base_y) = pos;
+        let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
         for (y, seq) in self.y_brks.as_anchor_slice().windows(2).zip(self.tile.vertical_seqs().iter()) {
-            self.draw_ylabel((base_x, base_y - y[0] as i32), backend, seq, &range_mapper, &label_formatter)?;
+            self.draw_ylabel(shift((0, -(y[0] as i32))), backend, seq, &range_mapper, &label_formatter)?;
         }
         Ok(())
     }
@@ -921,7 +919,8 @@ where
         I: Iterator<Item = (i32, i32)>,
     {
         let mut pos = pos;
-        let (base_x, base_y) = pos.next().unwrap();
+        let pos = pos.next().unwrap();
+        let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
 
         let layout = Layout(LayoutElem::Margined {
             margin: LayoutMargin::new(self.app.y_label_area_size, 0, 0, self.app.x_label_area_size),
@@ -933,22 +932,22 @@ where
         });
 
         let range = layout.get_range(".center").unwrap();
-        let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
-        self.draw_tile((base_x + x, base_y + y), backend)?;
+        let pos = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomLeft);
+        self.draw_tile(shift(pos), backend)?;
 
         let range = layout.get_range(".left").unwrap();
-        let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight);
+        let pos = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight);
         self.draw_ylabels(
-            (base_x + x, base_y + y),
+            shift(pos),
             backend,
             |s| s.range.clone(),
             |i, u| format!("{:.1}", i as f64 / u as f64),
         )?;
 
         let range = layout.get_range(".bottom").unwrap();
-        let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
+        let pos = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
         self.draw_xlabels(
-            (base_x + x, base_y + y),
+            shift(pos),
             backend,
             |s| s.range.clone(),
             |i, u| format!("{:.1}", i as f64 / u as f64),
@@ -960,7 +959,7 @@ where
 pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
     let text_style = TextStyle::from(("sans-serif", 12).into_font()).color(&BLACK);
     let tick_appearance = TickAppearance {
-        large_tick_length: 5,
+        large_tick_length: 3,
         small_tick_length: 1,
         label_setback: 8,
         label_style: text_style.clone(),
@@ -971,12 +970,12 @@ pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
         spacer_thickness: 1,
         desired_tick_pitch: 25,
 
-        x_label_area_size: 20,
+        x_label_area_size: 35,
         x_tick_apparance: tick_appearance.clone(),
         x_seq_name_style: text_style.clone(),
-        x_seq_name_setback: 25,
+        x_seq_name_setback: 20,
 
-        y_label_area_size: 20,
+        y_label_area_size: 50,
         y_tick_appearance: tick_appearance.clone(),
         y_seq_name_style: text_style.clone(),
         y_seq_name_setback: 35,
@@ -991,8 +990,13 @@ pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
     let (width, height) = dotplot.get_dim();
     let layout = Layout(LayoutElem::Margined {
         margin: LayoutMargin::uniform(20),
-        center: Box::new(LayoutElem::Horizontal(vec![
-            LayoutElem::Vertical(vec![
+        center: Box::new(LayoutElem::Vertical(vec![
+            LayoutElem::Horizontal(vec![
+                LayoutElem::Rect {
+                    id: None,
+                    width: 50,
+                    height: 30,
+                },
                 LayoutElem::Rect {
                     id: Some("length_scale".to_string()),
                     width: 110,
@@ -1017,12 +1021,20 @@ pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
         area.draw(&dotplot)?;
     }
     if let Some(area) = areas.get_area("length_scale") {
-        let tick_pitch = TickPitch::new(100, tile.base_per_pixel() as u32);
+        let tick_pitch = TickPitch::new(appearance.desired_tick_pitch, tile.base_per_pixel() as u32);
+        let tick_appearance = TickAppearance {
+            fit_in_box: false,
+            ..tick_appearance.clone()
+        };
         let length_scale = LengthScale::new(100, 1, &tick_pitch, &tick_appearance);
         area.draw(&length_scale)?;
     }
     if let Some(area) = areas.get_area("color_scale") {
-        let color_scale = ColorScale::new(100, 1, &color_map, &tick_appearance);
+        let tick_appearance = TickAppearance {
+            fit_in_box: false,
+            ..tick_appearance.clone()
+        };
+        let color_scale = ColorScale::new(200, 1, &color_map, &tick_appearance);
         area.draw(&color_scale)?;
     }
     areas.present()?;

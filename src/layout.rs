@@ -152,7 +152,7 @@ impl LayoutElem {
     }
 
     fn get_range_by_path(&self, path: &str) -> Option<RectPosition> {
-        eprintln!("get_range_by_path: {path:?}, self: {self:?}");
+        // eprintln!("get_range_by_path: {path:?}, self: {self:?}");
         if path.is_empty() {
             let (w, h) = self.get_dim();
             return Some(RectPosition {
@@ -189,7 +189,7 @@ impl LayoutElem {
     }
 
     fn get_range_by_id(&self, id: &str) -> Option<RectPosition> {
-        eprintln!("get_range_by_id: {id:?}, self: {self:?}");
+        // eprintln!("get_range_by_id: {id:?}, self: {self:?}");
         match self {
             LayoutElem::Rect { id: rect_id, .. } => {
                 if rect_id.as_deref() == Some(id) {
