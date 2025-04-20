@@ -48,7 +48,7 @@ impl Breakpoints {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct TickPitch {
+pub struct Axis {
     base_per_pixel: u32,
     label_period: u32,
     pitch_in_bases: u32,
@@ -56,8 +56,8 @@ pub struct TickPitch {
     subunit: u32,
 }
 
-impl TickPitch {
-    pub fn new(desired_pitch_in_pixels: u32, base_per_pixel: u32) -> TickPitch {
+impl Axis {
+    pub fn new(desired_pitch_in_pixels: u32, base_per_pixel: u32) -> Axis {
         let unit_bases = (desired_pitch_in_pixels as f64 * base_per_pixel as f64).log(10.0);
         let (f, c) = (unit_bases.fract(), unit_bases.floor());
         assert!(f <= 1.0 && c >= 1.0);
@@ -70,7 +70,7 @@ impl TickPitch {
             (5, 10u64.pow(c as u32 + 1) / 2)
         };
         let subunit = 10u32.pow(pitch_in_bases.ilog10() / 3 * 3);
-        TickPitch {
+        Axis {
             base_per_pixel,
             label_period,
             pitch_in_bases: pitch_in_bases as u32,
@@ -110,7 +110,7 @@ impl<'a> Tick<'a> {
         range: &Range<usize>,
         axis_direction: Direction,
         tick_direction: Direction,
-        pitch: &'_ TickPitch,
+        axis: &'_ Axis,
         app: &'a TickAppearance,
         label_formatter: F,
     ) -> Vec<Tick<'a>>
@@ -118,7 +118,7 @@ impl<'a> Tick<'a> {
         F: Fn(u32, u32) -> String,
     {
         let range = range.start as u32..range.end as u32;
-        let base_to_pixel = pitch.pixels_per_pitch / pitch.pitch_in_bases as f64;
+        let base_to_pixel = axis.pixels_per_pitch / axis.pitch_in_bases as f64;
         let build = |i: u32, is_large: bool, show_label: bool| {
             Self::build(
                 root,
@@ -128,7 +128,7 @@ impl<'a> Tick<'a> {
                 (i == range.start, i == range.end),
                 is_large,
                 app,
-                label_formatter(i, pitch.subunit),
+                label_formatter(i, axis.subunit),
                 show_label,
             )
         };
@@ -138,15 +138,15 @@ impl<'a> Tick<'a> {
 
         let mut i = range.start;
         loop {
-            let next_n = (i + 1).div_ceil(pitch.pitch_in_bases);
-            i = next_n * pitch.pitch_in_bases;
+            let next_n = (i + 1).div_ceil(axis.pitch_in_bases);
+            i = next_n * axis.pitch_in_bases;
             if i >= range.end {
                 break;
             }
 
-            let thresh = pitch.pitch_in_bases * 3;
+            let thresh = axis.pitch_in_bases * 3;
             let too_close_to_end = i <= range.start + thresh || i + thresh >= range.end;
-            let is_large = next_n % pitch.label_period == 0;
+            let is_large = next_n % axis.label_period == 0;
             let show_label = is_large && !too_close_to_end;
             labels.push(build(i, is_large, show_label));
         }
@@ -262,17 +262,17 @@ where
 pub struct LengthScale<'a> {
     len: u32,
     thickness: u32,
-    pitch: TickPitch,
+    axis: Axis,
     app: &'a TickAppearance<'a>,
 }
 
 impl<'a> LengthScale<'a> {
-    fn new(desired_length: u32, axis_thickness: u32, tick_pitch: &'_ TickPitch, tick_appearance: &'a TickAppearance) -> LengthScale<'a> {
-        let len = (tick_pitch.label_period * tick_pitch.pitch_in_bases).div_ceil(desired_length) * desired_length;
+    fn new(desired_length: u32, axis_thickness: u32, axis: &'_ Axis, axis_appearance: &'a AxisAppearance) -> LengthScale<'a> {
+        let len = (axis.label_period * axis.pitch_in_bases).div_ceil(desired_length) * desired_length;
         LengthScale {
             len,
             thickness: axis_thickness,
-            pitch: *tick_pitch,
+            axis: *axis,
             app: tick_appearance,
         }
     }
@@ -311,7 +311,7 @@ where
             &(0..self.len as usize),
             Direction::Right,
             Direction::Down,
-            &self.pitch,
+            &self.axis,
             self.app,
             |i, subunit| format!("{:.1}", i as f64 / subunit as f64),
         );
@@ -343,7 +343,7 @@ where
             tick.tick_start.1 -= adj;
         }
         if let Some(tick) = ticks.last_mut() {
-            tick.label = format!("{} {}bp", &tick.label, self.pitch.get_subunit_text());
+            tick.label = format!("{} {}bp", &tick.label, self.axis.get_subunit_text());
             tick.tick_start.1 -= adj;
         }
 
@@ -370,19 +370,19 @@ pub struct ColorScale<'a> {
     len: u32,
     thickness: u32,
     color_map: DensityColorMap,
-    pitch: TickPitch,
+    axis: Axis,
     app: &'a TickAppearance<'a>,
 }
 
 impl<'a> ColorScale<'a> {
     fn new(desired_length: u32, axis_thickness: u32, color_map: &'_ DensityColorMap, appearance: &'a TickAppearance) -> ColorScale<'a> {
-        let pitch = TickPitch::new(desired_length / 4, 1);
-        let len = pitch.label_period * pitch.pitch_in_bases;
+        let axis = Axis::new(1, desired_length / 4);
+        let len = axis.label_period * axis.pitch_in_bases;
         ColorScale {
             len,
             thickness: axis_thickness,
             color_map: *color_map,
-            pitch,
+            axis,
             app: appearance,
         }
     }
@@ -421,7 +421,7 @@ where
             &(0..self.len as usize),
             Direction::Right,
             Direction::Down,
-            &self.pitch,
+            &self.axis,
             self.app,
             |i, _| format!("{:.1}", self.color_map.max_density.powf(i as f64 / self.len as f64)),
         );
@@ -457,7 +457,7 @@ where
         let rv_shift = |(x, y): (i32, i32)| shift((rv_x + x + 1, rv_y + y));
 
         let height = self.app.large_tick_length as i32;
-        let picker = self.color_map.to_picker(self.pitch.base_per_pixel as f64);
+        let picker = self.color_map.to_picker(self.axis.base_per_pixel as f64);
         for i in 0..len {
             let cnt = self.color_map.max_density.powf(i as f64 / len as f64);
             let cf = picker.get_color(0, cnt as u32).color();
@@ -523,7 +523,7 @@ pub struct DotPlot<'a> {
     dim: (u32, u32),
     x_brks: Breakpoints,
     y_brks: Breakpoints,
-    pitch: TickPitch,
+    axis: Axis,
     picker: ColorPicker,
     app: &'a DotPlotAppearance<'a>,
 }
@@ -540,7 +540,7 @@ impl<'a> DotPlot<'a> {
             dim: (width, height),
             x_brks: Breakpoints::from_pixels(&x_pixels),
             y_brks: Breakpoints::from_pixels(&y_pixels),
-            pitch: TickPitch::new(appearance.desired_tick_pitch, tile.base_per_pixel() as u32),
+            axis: Axis::new(tile.base_per_pixel() as u32, appearance.desired_tick_pitch),
             picker: color_map.to_picker(tile.base_per_pixel() as f64),
             app: appearance,
         }
@@ -614,7 +614,7 @@ impl<'a> DotPlot<'a> {
             &range_mapper(seq),
             Direction::Right,
             Direction::Down,
-            &self.pitch,
+            &self.axis,
             &self.app.x_tick_apparance,
             label_formatter,
         );
@@ -695,7 +695,7 @@ impl<'a> DotPlot<'a> {
             &range_mapper(seq),
             Direction::Up,
             Direction::Left,
-            &self.pitch,
+            &self.axis,
             &self.app.y_tick_appearance,
             label_formatter,
         );
@@ -851,12 +851,12 @@ pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
     let dotplot = DotPlot::new(tile, &appearance, &color_map);
 
     // create length scale
-    let tick_pitch = TickPitch::new(appearance.desired_tick_pitch, tile.base_per_pixel() as u32);
+    let axis = Axis::new(tile.base_per_pixel() as u32, appearance.desired_tick_pitch);
     let tick_appearance = TickAppearance {
         fit_in_box: false,
         ..tick_appearance.clone()
     };
-    let length_scale = LengthScale::new(100, 1, &tick_pitch, &tick_appearance);
+    let length_scale = LengthScale::new(100, 1, &axis, &axis_appearance);
 
     // create color scale
     let tick_appearance = TickAppearance {

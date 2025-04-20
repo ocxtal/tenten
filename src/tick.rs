@@ -6,42 +6,7 @@ use plotters_backend::DrawingErrorKind;
 use std::ops::Range;
 
 #[derive(Copy, Clone, Debug)]
-enum Direction {
-    Up,
-    Down,
-    Left,
-    Right,
-}
-
-#[derive(Clone, Debug)]
-struct Breakpoints {
-    v: Vec<u32>, // first element is always zero; ignored when splitting plot plane
-}
-
-impl Breakpoints {
-    fn from_pixels(pixels: &[u32]) -> Breakpoints {
-        assert!(!pixels.is_empty());
-
-        let mut acc = 0;
-        let mut v = vec![0];
-        for p in pixels {
-            acc += p;
-            v.push(acc);
-        }
-        Breakpoints { v }
-    }
-
-    fn as_slice(&self) -> &[u32] {
-        &self.v
-    }
-
-    fn pixels(&self) -> u32 {
-        *self.v.last().unwrap()
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct TickPitch {
+pub struct Axis {
     base_per_pixel: u32,
     label_period: u32,
     pitch_in_bases: u32,
@@ -49,8 +14,8 @@ pub struct TickPitch {
     subunit: u32,
 }
 
-impl TickPitch {
-    pub fn new(desired_pitch_in_pixels: u32, base_per_pixel: u32) -> TickPitch {
+impl Axis {
+    pub fn new(base_per_pixel: u32, desired_pitch_in_pixels: u32) -> Axis {
         let unit_bases = (desired_pitch_in_pixels as f64 * base_per_pixel as f64).log(10.0);
         let (f, c) = (unit_bases.fract(), unit_bases.floor());
         assert!(f <= 1.0 && c >= 1.0);
@@ -63,7 +28,7 @@ impl TickPitch {
             (5, 10u64.pow(c as u32 + 1) / 2)
         };
         let subunit = 10u32.pow(pitch_in_bases.ilog10() / 3 * 3);
-        TickPitch {
+        Axis {
             base_per_pixel,
             label_period,
             pitch_in_bases: pitch_in_bases as u32,
@@ -103,7 +68,7 @@ impl<'a> Tick<'a> {
         range: Range<usize>,
         axis_direction: Direction,
         tick_direction: Direction,
-        pitch: &'_ TickPitch,
+        axis: &'_ Axis,
         app: &'a TickAppearance,
         label_formatter: F,
     ) -> Vec<Tick<'a>>
@@ -111,7 +76,7 @@ impl<'a> Tick<'a> {
         F: Fn(u32, u32) -> String,
     {
         let range = range.start as u32..range.end as u32;
-        let base_to_pixel = pitch.pixels_per_pitch / pitch.pitch_in_bases as f64;
+        let base_to_pixel = axis.pixels_per_pitch / axis.pitch_in_bases as f64;
         let build = |i: u32, is_large: bool, show_label: bool| {
             Self::build(
                 root,
@@ -121,7 +86,7 @@ impl<'a> Tick<'a> {
                 (i == range.start, i == range.end),
                 is_large,
                 app,
-                label_formatter(i, pitch.subunit),
+                label_formatter(i, axis.subunit),
                 show_label,
             )
         };
@@ -131,15 +96,15 @@ impl<'a> Tick<'a> {
 
         let mut i = range.start;
         loop {
-            let next_n = (i + 1).div_ceil(pitch.pitch_in_bases);
-            i = next_n * pitch.pitch_in_bases;
+            let next_n = (i + 1).div_ceil(axis.pitch_in_bases);
+            i = next_n * axis.pitch_in_bases;
             if i >= range.end {
                 break;
             }
 
-            let thresh = pitch.pitch_in_bases * 3;
+            let thresh = axis.pitch_in_bases * 3;
             let too_close_to_end = i <= range.start + thresh || i + thresh >= range.end;
-            let is_large = next_n % pitch.label_period == 0;
+            let is_large = next_n % axis.label_period == 0;
             let show_label = is_large && !too_close_to_end;
             labels.push(build(i, is_large, show_label));
         }
