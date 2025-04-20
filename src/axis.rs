@@ -43,7 +43,7 @@ impl Axis {
 }
 
 #[derive(Clone)]
-pub struct TickAppearance<'a> {
+pub struct AxisAppearance<'a> {
     pub large_tick_length: u32,
     pub small_tick_length: u32,
     pub label_setback: u32,
@@ -69,7 +69,7 @@ impl<'a> Tick<'a> {
         axis_direction: Direction,
         tick_direction: Direction,
         axis: &'_ Axis,
-        app: &'a TickAppearance,
+        app: &'a AxisAppearance,
         label_formatter: F,
     ) -> Vec<Tick<'a>>
     where
@@ -120,7 +120,7 @@ impl<'a> Tick<'a> {
         axis_direction: Direction,
         is_end: (bool, bool),
         is_large: bool,
-        app: &'a TickAppearance,
+        app: &'a AxisAppearance,
         label: String,
         show_label: bool,
     ) -> Tick<'a> {

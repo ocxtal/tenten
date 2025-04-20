@@ -85,7 +85,7 @@ impl Axis {
 }
 
 #[derive(Clone)]
-pub struct TickAppearance<'a> {
+pub struct AxisAppearance<'a> {
     pub large_tick_length: u32,
     pub small_tick_length: u32,
     pub label_setback: u32,
@@ -111,7 +111,7 @@ impl<'a> Tick<'a> {
         axis_direction: Direction,
         tick_direction: Direction,
         axis: &'_ Axis,
-        app: &'a TickAppearance,
+        app: &'a AxisAppearance,
         label_formatter: F,
     ) -> Vec<Tick<'a>>
     where
@@ -162,7 +162,7 @@ impl<'a> Tick<'a> {
         axis_direction: Direction,
         is_end: (bool, bool),
         is_large: bool,
-        app: &'a TickAppearance,
+        app: &'a AxisAppearance,
         label: String,
         show_label: bool,
     ) -> Tick<'a> {
@@ -263,7 +263,7 @@ pub struct LengthScale<'a> {
     len: u32,
     thickness: u32,
     axis: Axis,
-    app: &'a TickAppearance<'a>,
+    app: &'a AxisAppearance<'a>,
 }
 
 impl<'a> LengthScale<'a> {
@@ -273,7 +273,7 @@ impl<'a> LengthScale<'a> {
             len,
             thickness: axis_thickness,
             axis: *axis,
-            app: tick_appearance,
+            app: axis_appearance,
         }
     }
 
@@ -371,11 +371,11 @@ pub struct ColorScale<'a> {
     thickness: u32,
     color_map: DensityColorMap,
     axis: Axis,
-    app: &'a TickAppearance<'a>,
+    app: &'a AxisAppearance<'a>,
 }
 
 impl<'a> ColorScale<'a> {
-    fn new(desired_length: u32, axis_thickness: u32, color_map: &'_ DensityColorMap, appearance: &'a TickAppearance) -> ColorScale<'a> {
+    fn new(desired_length: u32, axis_thickness: u32, color_map: &'_ DensityColorMap, appearance: &'a AxisAppearance) -> ColorScale<'a> {
         let axis = Axis::new(1, desired_length / 4);
         let len = axis.label_period * axis.pitch_in_bases;
         ColorScale {
@@ -507,12 +507,12 @@ pub struct DotPlotAppearance<'a> {
     pub desired_tick_pitch: u32,
 
     pub x_label_area_size: u32,
-    pub x_tick_apparance: TickAppearance<'a>,
+    pub x_axis_appearance: AxisAppearance<'a>,
     pub x_seq_name_style: TextStyle<'a>,
     pub x_seq_name_setback: u32,
 
     pub y_label_area_size: u32,
-    pub y_tick_appearance: TickAppearance<'a>,
+    pub y_axis_appearance: AxisAppearance<'a>,
     pub y_seq_name_style: TextStyle<'a>,
     pub y_seq_name_setback: u32,
 }
@@ -615,7 +615,7 @@ impl<'a> DotPlot<'a> {
             Direction::Right,
             Direction::Down,
             &self.axis,
-            &self.app.x_tick_apparance,
+            &self.app.x_axis_appearance,
             label_formatter,
         );
         let width = ticks.last().unwrap().tick_start.0.unsigned_abs() + 1;
@@ -696,7 +696,7 @@ impl<'a> DotPlot<'a> {
             Direction::Up,
             Direction::Left,
             &self.axis,
-            &self.app.y_tick_appearance,
+            &self.app.y_axis_appearance,
             label_formatter,
         );
         let height = ticks.last().unwrap().tick_start.1.unsigned_abs();
@@ -821,7 +821,7 @@ where
 pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
     // create dotplot
     let text_style = TextStyle::from(("sans-serif", 12).into_font()).color(&BLACK);
-    let tick_appearance = TickAppearance {
+    let axis_appearance = AxisAppearance {
         large_tick_length: 3,
         small_tick_length: 1,
         label_setback: 8,
@@ -834,12 +834,12 @@ pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
         desired_tick_pitch: 25,
 
         x_label_area_size: 35,
-        x_tick_apparance: tick_appearance.clone(),
+        x_axis_appearance: axis_appearance.clone(),
         x_seq_name_style: text_style.clone(),
         x_seq_name_setback: 20,
 
         y_label_area_size: 50,
-        y_tick_appearance: tick_appearance.clone(),
+        y_axis_appearance: axis_appearance.clone(),
         y_seq_name_style: text_style.clone(),
         y_seq_name_setback: 35,
     };
@@ -852,18 +852,18 @@ pub fn plot(name: &str, tile: &BlockTile) -> Result<()> {
 
     // create length scale
     let axis = Axis::new(tile.base_per_pixel() as u32, appearance.desired_tick_pitch);
-    let tick_appearance = TickAppearance {
+    let axis_appearance = AxisAppearance {
         fit_in_box: false,
-        ..tick_appearance.clone()
+        ..axis_appearance.clone()
     };
     let length_scale = LengthScale::new(100, 1, &axis, &axis_appearance);
 
     // create color scale
-    let tick_appearance = TickAppearance {
+    let axis_appearance = AxisAppearance {
         fit_in_box: false,
-        ..tick_appearance.clone()
+        ..axis_appearance.clone()
     };
-    let color_scale = ColorScale::new(200, 1, &color_map, &tick_appearance);
+    let color_scale = ColorScale::new(200, 1, &color_map, &axis_appearance);
 
     let layout = Layout(LayoutElem::Margined {
         margin: LayoutMargin::uniform(20),
