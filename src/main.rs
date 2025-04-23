@@ -3,6 +3,7 @@ mod parser;
 use crate::parser::{SeedParser, SeedToken};
 use clap::Parser;
 use plotters::prelude::*;
+use regex::Regex;
 use std::collections::HashMap;
 use std::io::{BufRead, Read};
 use std::path::Path;
@@ -104,13 +105,11 @@ pub struct Args {
     )]
     pub query_range_format: RangeFormat,
 
-    #[clap(
-        short = 'N',
-        long,
-        help = "Parse axis range from name (in the \"chr7:6000000-6300000\" format)",
-        default_value = "false"
-    )]
-    pub parse_range_from_name: bool,
+    #[clap(long, help = "Regex to extract labels from sequence name (reference side)")]
+    pub reference_label_extractor: Option<String>,
+
+    #[clap(long, help = "Regex to extract labels from sequence name (query side)")]
+    pub query_label_extractor: Option<String>,
 
     #[clap(long, help = "Annotation file for the reference (in BED format)")]
     pub reference_annotation: Option<String>,
@@ -220,10 +219,33 @@ impl Read for SeedGeneratorCommand {
     }
 }
 
-fn extract_offset_from_seq_name(name: &str) -> Option<isize> {
-    let range = name.split(':').nth(1)?;
-    let start = range.split('-').nth(0)?;
-    start.parse::<isize>().ok()
+struct LabelExtractor {
+    re: Regex,
+}
+
+impl LabelExtractor {
+    fn new(re: &str) -> LabelExtractor {
+        let re = Regex::new(re).unwrap();
+        LabelExtractor { re }
+    }
+
+    fn patch_sequence(&self, seq: &mut SequenceRange) {
+        if let Some(cap) = self.re.captures(&seq.name) {
+            if let Some(start) = cap.name("start") {
+                if let Ok(start) = start.as_str().parse::<isize>() {
+                    seq.offset_to_coord_in_plot = start;
+                }
+            } else if let Some(offset) = cap.name("offset") {
+                if let Ok(offset) = offset.as_str().parse::<isize>() {
+                    seq.offset_to_coord_in_plot = offset;
+                }
+            }
+
+            if let Some(name) = cap.name("name") {
+                seq.name_in_plot = Some(name.as_str().to_string());
+            }
+        }
+    }
 }
 
 struct Context<'a> {
@@ -265,12 +287,16 @@ impl<'a> Context<'a> {
             qseq
         };
 
-        if args.extract_range_from_name {
-            for r in &mut rseq {
-                r.offset_to_label_coord = extract_offset_from_seq_name(&r.name).unwrap_or(0);
+        if let Some(ref re) = args.reference_label_extractor {
+            let extractor = LabelExtractor::new(re);
+            for seq in &mut rseq {
+                extractor.patch_sequence(seq);
             }
-            for q in &mut qseq {
-                q.offset_to_label_coord = extract_offset_from_seq_name(&q.name).unwrap_or(0);
+        }
+        if let Some(ref re) = args.query_label_extractor {
+            let extractor = LabelExtractor::new(re);
+            for seq in &mut qseq {
+                extractor.patch_sequence(seq);
             }
         }
 
