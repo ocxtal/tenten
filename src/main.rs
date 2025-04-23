@@ -232,19 +232,19 @@ impl LabelExtractor {
     fn patch_sequence(&self, seq: &mut SequenceRange) {
         if let Some(cap) = self.re.captures(&seq.name) {
             if let Some(start) = cap.name("start") {
-				log::debug!("start found: {:?}", start.as_str());
+                log::debug!("start found: {:?}", start.as_str());
                 if let Ok(start) = start.as_str().parse::<isize>() {
                     seq.offset_to_coord_in_plot = start;
                 }
             } else if let Some(offset) = cap.name("offset") {
-				log::debug!("offset found: {:?}", offset.as_str());
+                log::debug!("offset found: {:?}", offset.as_str());
                 if let Ok(offset) = offset.as_str().parse::<isize>() {
                     seq.offset_to_coord_in_plot = offset;
                 }
             }
 
             if let Some(name) = cap.name("name") {
-				log::debug!("name found: {:?}", offset.as_str());
+                log::debug!("name found: {:?}", name.as_str());
                 seq.name_in_plot = Some(name.as_str().to_string());
             }
             let name = seq.name_in_plot();

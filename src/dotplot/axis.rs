@@ -101,7 +101,7 @@ impl<'a> Tick<'a> {
         let hide_thresh = pitch * 3;
         let mut i = range.start;
         loop {
-            let next_n = (i + pitch - 1).div_euclid(pitch) * pitch;
+            let next_n = (i + pitch).div_euclid(pitch) * pitch;
             i = next_n * pitch;
             if i >= range.end {
                 break;
