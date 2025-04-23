@@ -220,9 +220,10 @@ impl Read for SeedGeneratorCommand {
     }
 }
 
-fn filter_range(ranges: &[SequenceRange], _filter: &[SequenceRange]) -> Vec<SequenceRange> {
-    // TODO: implement this
-    ranges.to_vec()
+fn extract_offset_from_seq_name(name: &str) -> Option<isize> {
+    let range = name.split(':').nth(1)?;
+    let start = range.split('-').nth(0)?;
+    start.parse::<isize>().ok()
 }
 
 struct Context<'a> {
@@ -245,7 +246,7 @@ impl<'a> Context<'a> {
         annot_color: &'a AnnotationColorMap,
         appearance: &'a DotPlotAppearance<'a>,
     ) -> Self {
-        let (mut rseq, mut qseq) = if let Some(query) = &args.query {
+        let (rseq, qseq) = if let Some(query) = &args.query {
             let rseq = load_sequence_range(&args.reference, RangeFormat::Fasta).unwrap();
             let qseq = load_sequence_range(query, RangeFormat::Fasta).unwrap();
             (rseq, qseq)
@@ -253,14 +254,26 @@ impl<'a> Context<'a> {
             (Vec::new(), Vec::new())
         };
 
-        if let Some(reference_range) = &args.reference_range {
-            let rcrop = load_sequence_range(reference_range, args.reference_range_format).unwrap();
-            rseq = filter_range(&rseq, &rcrop);
+        let mut rseq = if let Some(reference_range) = &args.reference_range {
+            load_sequence_range(reference_range, args.reference_range_format).unwrap()
+        } else {
+            rseq
+        };
+        let mut qseq = if let Some(query_range) = &args.query_range {
+            load_sequence_range(query_range, args.query_range_format).unwrap()
+        } else {
+            qseq
+        };
+
+        if args.extract_range_from_name {
+            for r in &mut rseq {
+                r.offset_to_label_coord = extract_offset_from_seq_name(&r.name).unwrap_or(0);
+            }
+            for q in &mut qseq {
+                q.offset_to_label_coord = extract_offset_from_seq_name(&q.name).unwrap_or(0);
+            }
         }
-        if let Some(query_range) = &args.query_range {
-            let qcrop = load_sequence_range(query_range, args.query_range_format).unwrap();
-            qseq = filter_range(&qseq, &qcrop);
-        }
+
         let (rseq, qseq) = if args.swap_generator { (qseq, rseq) } else { (rseq, qseq) };
 
         log::debug!("reference ranges: {rseq:?}");
