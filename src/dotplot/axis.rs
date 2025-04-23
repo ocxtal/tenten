@@ -68,7 +68,7 @@ pub(crate) struct Tick<'a> {
 impl<'a> Tick<'a> {
     pub fn build_vec<F>(
         root: (i32, i32),
-        range: Range<usize>,
+        range: Range<isize>,
         axis_direction: Direction,
         tick_direction: Direction,
         axis: &'_ Axis,
@@ -76,11 +76,10 @@ impl<'a> Tick<'a> {
         label_formatter: F,
     ) -> Vec<Tick<'a>>
     where
-        F: Fn(u32, u32) -> String,
+        F: Fn(isize, usize) -> String,
     {
-        let range = range.start as u32..range.end as u32;
         let base_to_pixel = axis.pixels_per_pitch / axis.pitch_in_bases as f64;
-        let build = |i: u32, is_large: bool, show_label: bool| {
+        let build = |i: isize, is_large: bool, show_label: bool| {
             Self::build(
                 root,
                 ((i - range.start) as f64 * base_to_pixel) as i32,
@@ -89,7 +88,7 @@ impl<'a> Tick<'a> {
                 (i == range.start, i == range.end),
                 is_large,
                 app,
-                label_formatter(i, axis.subunit),
+                label_formatter(i, axis.subunit as usize),
                 show_label,
             )
         };
@@ -97,17 +96,19 @@ impl<'a> Tick<'a> {
         let mut labels = Vec::new();
         labels.push(build(range.start, true, true));
 
+        let pitch = axis.pitch_in_bases as isize;
+        let label_period = axis.label_period as isize;
+        let hide_thresh = pitch * 3;
         let mut i = range.start;
         loop {
-            let next_n = (i + 1).div_ceil(axis.pitch_in_bases);
-            i = next_n * axis.pitch_in_bases;
+            let next_n = (i + pitch - 1).div_euclid(pitch) * pitch;
+            i = next_n * pitch;
             if i >= range.end {
                 break;
             }
 
-            let thresh = axis.pitch_in_bases * 3;
-            let too_close_to_end = i <= range.start + thresh || i + thresh >= range.end;
-            let is_large = next_n % axis.label_period == 0;
+            let too_close_to_end = i <= range.start + hide_thresh || i + hide_thresh >= range.end;
+            let is_large = next_n % label_period == 0;
             let show_label = is_large && !too_close_to_end;
             labels.push(build(i, is_large, show_label));
         }
@@ -270,7 +271,7 @@ where
         // ticks
         let ticks = Tick::build_vec(
             (0, 0),
-            0..self.len as usize,
+            0..self.len as isize,
             Direction::Right,
             Direction::Down,
             &self.axis,

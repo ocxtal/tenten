@@ -153,7 +153,7 @@ where
         // first build ticks (to determine actual width)
         let ticks = Tick::build_vec(
             (0, 0),
-            0..self.len as usize,
+            0..self.len as isize,
             Direction::Right,
             Direction::Down,
             &self.axis,

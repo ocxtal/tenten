@@ -21,6 +21,7 @@ pub struct SequenceRange {
     pub name: String,
     pub range: Range<usize>,
     pub annotation: Option<String>,
+    pub offset_to_label_coord: isize,
 }
 
 impl SequenceRange {
@@ -41,7 +42,14 @@ impl SequenceRange {
             name: self.name.clone(),
             range: start..end,
             annotation: None,
+            offset_to_label_coord: 0,
         })
+    }
+
+    pub fn label_range(&self) -> Range<isize> {
+        let start = self.range.start as isize + self.offset_to_label_coord;
+        let end = self.range.end as isize + self.offset_to_label_coord;
+        start..end
     }
 }
 
@@ -71,6 +79,7 @@ fn load_sequence_range_fasta(file: &str) -> Result<Vec<SequenceRange>> {
                     name,
                     range: 0..len,
                     annotation: None,
+                    offset_to_label_coord: 0,
                 });
             }
 
@@ -86,6 +95,7 @@ fn load_sequence_range_fasta(file: &str) -> Result<Vec<SequenceRange>> {
             name,
             range: 0..len,
             annotation: None,
+            offset_to_label_coord: 0,
         });
     }
 
@@ -112,6 +122,7 @@ fn load_sequence_range_bed(file: &str) -> Result<Vec<SequenceRange>> {
             name,
             range: start..end,
             annotation,
+            offset_to_label_coord: 0,
         })
     }
     Ok(v)
@@ -140,6 +151,7 @@ fn load_sequence_range_text(file: &str) -> Result<Vec<SequenceRange>> {
             name,
             range: start..end,
             annotation: None,
+            offset_to_label_coord: 0,
         })
     }
     Ok(v)

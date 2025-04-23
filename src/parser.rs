@@ -44,12 +44,14 @@ where
                 name,
                 range: 0..len,
                 annotation: None,
+                offset_to_label_coord: 0,
             }))
         } else {
             Some(SeedToken::NewQuery(SequenceRange {
                 name,
                 range: 0..len,
                 annotation: None,
+                offset_to_label_coord: 0,
             }))
         }
     }

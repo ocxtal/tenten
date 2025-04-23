@@ -14,7 +14,6 @@ use plotters::prelude::*;
 use plotters::style::text_anchor::{HPos, Pos, VPos};
 use plotters_backend::{BackendStyle, DrawingErrorKind};
 use std::collections::{HashMap, HashSet};
-use std::ops::Range;
 
 #[derive(Clone)]
 pub struct DotPlotAppearance<'a> {
@@ -323,24 +322,22 @@ impl<'a> DotPlot<'a> {
         Ok(())
     }
 
-    fn draw_xlabel<DB, FM, FF>(
+    fn draw_xlabel<DB, F>(
         &self,
         pos: (i32, i32),
         backend: &mut DB,
         axis: &Axis,
         seq: &SequenceRange,
-        range_mapper: FM,
-        label_formatter: FF,
+        label_formatter: F,
     ) -> Result<(), DrawingErrorKind<DB::ErrorType>>
     where
         DB: DrawingBackend,
-        FM: Fn(&SequenceRange) -> Range<usize>,
-        FF: Fn(u32, u32) -> String,
+        F: Fn(isize, usize) -> String,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
         let ticks = Tick::build_vec(
             (0, 0),
-            range_mapper(seq),
+            seq.label_range(),
             Direction::Right,
             Direction::Down,
             axis,
@@ -374,45 +371,41 @@ impl<'a> DotPlot<'a> {
         Ok(())
     }
 
-    fn draw_xlabels<DB, FM, FF>(
+    fn draw_xlabels<DB, F>(
         &self,
         pos: (i32, i32),
         backend: &mut DB,
         axis: &Axis,
         sorted_planes: &SortedDotPlanes,
-        range_mapper: FM,
-        label_formatter: FF,
+        label_formatter: F,
     ) -> Result<(), DrawingErrorKind<DB::ErrorType>>
     where
         DB: DrawingBackend,
-        FM: Fn(&SequenceRange) -> Range<usize>,
-        FF: Fn(u32, u32) -> String,
+        F: Fn(isize, usize) -> String,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
         for &(x, seq) in sorted_planes.x_seqs.pos_seq_pairs.iter() {
-            self.draw_xlabel(shift((x as i32, 0)), backend, axis, seq, &range_mapper, &label_formatter)?;
+            self.draw_xlabel(shift((x as i32, 0)), backend, axis, seq, &label_formatter)?;
         }
         Ok(())
     }
 
-    fn draw_ylabel<DB, FM, FF>(
+    fn draw_ylabel<DB, F>(
         &self,
         pos: (i32, i32),
         backend: &mut DB,
         axis: &Axis,
         seq: &SequenceRange,
-        range_mapper: FM,
-        label_formatter: FF,
+        label_formatter: F,
     ) -> Result<(), DrawingErrorKind<DB::ErrorType>>
     where
         DB: DrawingBackend,
-        FM: Fn(&SequenceRange) -> Range<usize>,
-        FF: Fn(u32, u32) -> String,
+        F: Fn(isize, usize) -> String,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
         let ticks = Tick::build_vec(
             (0, 0),
-            range_mapper(seq),
+            seq.label_range(),
             Direction::Up,
             Direction::Left,
             axis,
@@ -451,23 +444,21 @@ impl<'a> DotPlot<'a> {
         Ok(())
     }
 
-    fn draw_ylabels<DB, FM, FF>(
+    fn draw_ylabels<DB, F>(
         &self,
         pos: (i32, i32),
         backend: &mut DB,
         axis: &Axis,
         sorted_planes: &SortedDotPlanes,
-        range_mapper: FM,
-        label_formatter: FF,
+        label_formatter: F,
     ) -> Result<(), DrawingErrorKind<DB::ErrorType>>
     where
         DB: DrawingBackend,
-        FM: Fn(&SequenceRange) -> Range<usize>,
-        FF: Fn(u32, u32) -> String,
+        F: Fn(isize, usize) -> String,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
         for &(y, seq) in sorted_planes.y_seqs.pos_seq_pairs.iter() {
-            self.draw_ylabel(shift((0, -(y as i32))), backend, axis, seq, &range_mapper, &label_formatter)?;
+            self.draw_ylabel(shift((0, -(y as i32))), backend, axis, seq, &label_formatter)?;
         }
         Ok(())
     }
@@ -508,25 +499,15 @@ where
 
         let range = layout.get_range(".left").unwrap();
         let pos = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::BottomRight);
-        self.draw_ylabels(
-            shift(pos),
-            backend,
-            &axis,
-            &sorted_planes,
-            |s| s.range.clone(),
-            |i, u| format!("{:.1}", i as f64 / u as f64),
-        )?;
+        self.draw_ylabels(shift(pos), backend, &axis, &sorted_planes, |i, u| {
+            format!("{:.1}", i as f64 / u as f64)
+        })?;
 
         let range = layout.get_range(".bottom").unwrap();
         let pos = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
-        self.draw_xlabels(
-            shift(pos),
-            backend,
-            &axis,
-            &sorted_planes,
-            |s| s.range.clone(),
-            |i, u| format!("{:.1}", i as f64 / u as f64),
-        )?;
+        self.draw_xlabels(shift(pos), backend, &axis, &sorted_planes, |i, u| {
+            format!("{:.1}", i as f64 / u as f64)
+        })?;
         Ok(())
     }
 }
