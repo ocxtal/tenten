@@ -1,4 +1,4 @@
-use crate::dotplot::color::{ColorPicker, DensityColorMap};
+use crate::dotplot::color::{AnnotationColorMap, AnnotationColorPicker, DensityColorMap, DensityColorPicker};
 use crate::dotplot::sequence::SequenceRange;
 use anyhow::Result;
 use plotters::element::{Drawable, PointCollection};
@@ -14,15 +14,16 @@ pub struct DotPlane {
     pub(crate) width: usize,
     pub(crate) height: usize,
     pub(crate) base_per_pixel: usize,
-    picker: ColorPicker,
+    picker: DensityColorPicker,
     annot: Option<DotPlaneAnnotation>,
     pub(crate) pair_id: usize,
 }
 
+#[derive(Debug)]
 struct DotPlaneAnnotation {
     rannot: Vec<SequenceRange>,
     qannot: Vec<SequenceRange>,
-    color_map: AnnotationColorMap,
+    picker: AnnotationColorPicker,
 }
 
 impl DotPlane {
@@ -75,7 +76,7 @@ impl DotPlane {
         self.annot = Some(DotPlaneAnnotation {
             rannot: r.to_vec(),
             qannot: q.to_vec(),
-            color_map: color_map.clone(),
+            picker: color_map.to_picker(),
         });
     }
 }
@@ -103,20 +104,34 @@ where
         // first draw the annotations
         if let Some(annot) = &self.annot {
             for r in annot.rannot.iter() {
-                let color = annot.color_map.palette.get(i);
-                backend.draw_rect(
-                    (pos.0 + r.range.start as i32 / self.base_per_pixel as i32, pos.1),
-                    (r.range.len() as i32 / self.base_per_pixel as i32, self.height as i32),
-                    BackendStyle::new(color),
-                )?;
+                if let Some(name) = r.annotation.as_ref() {
+                    if let Some(color) = annot.picker.get_color(name) {
+                        let cr = color.color();
+                        let start = r.range.start / self.base_per_pixel;
+                        let end = r.range.end / self.base_per_pixel;
+                        backend.draw_rect(
+                            (pos.0 + start as i32, pos.1),
+                            (pos.0 + end as i32, pos.1 + self.height as i32),
+                            &cr,
+                            true,
+                        )?;
+                    }
+                }
             }
-            for (i, q) in annot.qannot.iter().enumerate() {
-                let color = annot.color_map.get_color(i);
-                backend.draw_rect(
-                    (pos.0, pos.1 + q.range.start as i32 / self.base_per_pixel as i32),
-                    (self.width as i32, q.range.len() as i32 / self.base_per_pixel as i32),
-                    BackendStyle::new(color),
-                )?;
+            for q in annot.qannot.iter() {
+                if let Some(name) = q.annotation.as_ref() {
+                    if let Some(color) = annot.picker.get_color(name) {
+                        let cr = color.color();
+                        let start = q.range.start / self.base_per_pixel;
+                        let end = q.range.end / self.base_per_pixel;
+                        backend.draw_rect(
+                            (pos.0, pos.1 + start as i32),
+                            (pos.0 + self.width as i32, pos.1 + end as i32),
+                            &cr,
+                            true,
+                        )?;
+                    }
+                }
             }
         }
 

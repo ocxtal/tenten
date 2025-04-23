@@ -1027,6 +1027,7 @@ dependencies = [
  "plotters",
  "plotters-backend",
  "rand",
+ "regex",
  "serde",
  "serde_yaml",
  "tempfile",
