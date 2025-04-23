@@ -15,7 +15,14 @@ pub struct DotPlane {
     pub(crate) height: usize,
     pub(crate) base_per_pixel: usize,
     picker: ColorPicker,
+    annot: Option<DotPlaneAnnotation>,
     pub(crate) pair_id: usize,
+}
+
+struct DotPlaneAnnotation {
+    rannot: Vec<SequenceRange>,
+    qannot: Vec<SequenceRange>,
+    color_map: AnnotationColorMap,
 }
 
 impl DotPlane {
@@ -40,6 +47,7 @@ impl DotPlane {
             height,
             base_per_pixel,
             picker: color_map.to_picker(base_per_pixel as f64),
+            annot: None,
             pair_id,
         }
     }
@@ -62,6 +70,14 @@ impl DotPlane {
     pub fn get_seed_count(&self) -> usize {
         self.cnt.iter().map(|x| x[0] as usize + x[1] as usize).sum::<usize>()
     }
+
+    pub fn add_annotation(&mut self, r: &[SequenceRange], q: &[SequenceRange], color_map: &AnnotationColorMap) {
+        self.annot = Some(DotPlaneAnnotation {
+            rannot: r.to_vec(),
+            qannot: q.to_vec(),
+            color_map: color_map.clone(),
+        });
+    }
 }
 
 impl<'a> PointCollection<'a, (i32, i32)> for &'a DotPlane {
@@ -83,6 +99,28 @@ where
     {
         let mut pos = pos;
         let pos = pos.next().unwrap();
+
+        // first draw the annotations
+        if let Some(annot) = &self.annot {
+            for r in annot.rannot.iter() {
+                let color = annot.color_map.palette.get(i);
+                backend.draw_rect(
+                    (pos.0 + r.range.start as i32 / self.base_per_pixel as i32, pos.1),
+                    (r.range.len() as i32 / self.base_per_pixel as i32, self.height as i32),
+                    BackendStyle::new(color),
+                )?;
+            }
+            for (i, q) in annot.qannot.iter().enumerate() {
+                let color = annot.color_map.get_color(i);
+                backend.draw_rect(
+                    (pos.0, pos.1 + q.range.start as i32 / self.base_per_pixel as i32),
+                    (self.width as i32, q.range.len() as i32 / self.base_per_pixel as i32),
+                    BackendStyle::new(color),
+                )?;
+            }
+        }
+
+        // then plot dots
         for (y, line) in self.cnt.chunks(self.width).rev().enumerate() {
             for (x, cnt) in line.iter().enumerate() {
                 let cf = self.picker.get_color(0, cnt[0]).color();

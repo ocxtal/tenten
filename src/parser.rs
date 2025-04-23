@@ -40,9 +40,17 @@ where
 
         self.query_cache = Some(name.clone());
         if self.swap {
-            Some(SeedToken::NewReference(SequenceRange { name, range: 0..len }))
+            Some(SeedToken::NewReference(SequenceRange {
+                name,
+                range: 0..len,
+                annotation: None,
+            }))
         } else {
-            Some(SeedToken::NewQuery(SequenceRange { name, range: 0..len }))
+            Some(SeedToken::NewQuery(SequenceRange {
+                name,
+                range: 0..len,
+                annotation: None,
+            }))
         }
     }
 

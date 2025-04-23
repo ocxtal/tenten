@@ -20,6 +20,7 @@ pub enum RangeFormat {
 pub struct SequenceRange {
     pub name: String,
     pub range: Range<usize>,
+    pub annotation: Option<String>,
 }
 
 impl SequenceRange {
@@ -50,7 +51,11 @@ fn load_sequence_range_fasta(file: &str) -> Result<Vec<SequenceRange>> {
         let line = line?;
         if line.starts_with('>') {
             if let Some(name) = std::mem::take(&mut name) {
-                v.push(SequenceRange { name, range: 0..len });
+                v.push(SequenceRange {
+                    name,
+                    range: 0..len,
+                    annotation: None,
+                });
             }
 
             let cols = line.split_ascii_whitespace().collect::<Vec<_>>();
@@ -61,7 +66,11 @@ fn load_sequence_range_fasta(file: &str) -> Result<Vec<SequenceRange>> {
         }
     }
     if let Some(name) = std::mem::take(&mut name) {
-        v.push(SequenceRange { name, range: 0..len });
+        v.push(SequenceRange {
+            name,
+            range: 0..len,
+            annotation: None,
+        });
     }
 
     Ok(v)
@@ -82,7 +91,12 @@ fn load_sequence_range_bed(file: &str) -> Result<Vec<SequenceRange>> {
         let name = cols[0].to_string();
         let start = cols[1].parse::<usize>()?;
         let end = cols[2].parse::<usize>()?;
-        v.push(SequenceRange { name, range: start..end })
+        let annotation = cols.get(3).map(|s| s.to_string());
+        v.push(SequenceRange {
+            name,
+            range: start..end,
+            annotation,
+        })
     }
     Ok(v)
 }
@@ -106,7 +120,11 @@ fn load_sequence_range_text(file: &str) -> Result<Vec<SequenceRange>> {
         let name = cols[0].to_string();
         let start = pos[0].parse::<usize>()?;
         let end = pos[1].parse::<usize>()?;
-        v.push(SequenceRange { name, range: start..end })
+        v.push(SequenceRange {
+            name,
+            range: start..end,
+            annotation: None,
+        })
     }
     Ok(v)
 }

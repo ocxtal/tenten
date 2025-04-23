@@ -5,6 +5,7 @@ use anyhow::Result;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;
 use plotters_backend::{BackendStyle, DrawingErrorKind};
+use std::collections::HashMap;
 
 #[derive(Copy, Clone, Debug)]
 pub struct DensityColorMap {
@@ -40,6 +41,12 @@ impl ColorPicker {
         let intensity = self.scale * ((self.expansion * count as f64).log2() - self.offset);
         self.palette[palette_index].mix(intensity.clamp(0.0, 1.0))
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct AnnotationColorMap {
+    pub palette: HashMap<String, plotters::prelude::RGBColor>,
+    pub alpha: f64,
 }
 
 #[derive(Clone)]
