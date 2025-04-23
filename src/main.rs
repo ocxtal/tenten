@@ -246,7 +246,7 @@ impl LabelExtractor {
             }
             let name = name_in_plot();
             let range = seq.range_in_plot();
-            log::debug!("sequence patched: {}:{}-{}", name, range.start, range.en);
+            log::debug!("sequence patched: {}:{}-{}", name, range.start, range.end);
         }
     }
 }
