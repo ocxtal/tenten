@@ -244,6 +244,9 @@ impl LabelExtractor {
             if let Some(name) = cap.name("name") {
                 seq.name_in_plot = Some(name.as_str().to_string());
             }
+            let name = name_in_plot();
+            let range = seq.range_in_plot();
+            log::debug!("sequence patched: {}:{}-{}", name, range.start, range.en);
         }
     }
 }

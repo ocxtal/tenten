@@ -27,7 +27,9 @@ pub struct SequenceRange {
 
 impl SequenceRange {
     pub fn to_path_string(&self) -> String {
-        format!("{}_{}_{}", self.name, self.range.start, self.range.end)
+        let name = self.name_in_plot();
+        let range = self.range_in_plot();
+        format!("{}_{}_{}", name, range.start, range.end)
     }
 
     pub fn subrange(&self, other: &SequenceRange) -> Option<SequenceRange> {
