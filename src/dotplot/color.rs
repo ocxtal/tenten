@@ -90,13 +90,13 @@ impl AnnotationColorPicker {
             .filter_map(|(regex, color)| {
                 if let Some(m) = regex.find(name) {
                     let len = m.end() - m.start();
-                    Some((len, color.clone()))
+                    Some((len, *color))
                 } else {
                     None
                 }
             })
             .max_by_key(|(len, _)| *len)
-            .unwrap_or((0, self.default.clone()))
+            .unwrap_or((0, self.default))
             .1
     }
 

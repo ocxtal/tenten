@@ -329,7 +329,7 @@ impl<'a> Context<'a> {
         };
 
         let mut dotplot = DotPlot::new(&rseq, &qseq, args.base_per_pixel, dot_color, appearance);
-        dotplot.add_annotation(&rannot, &qannot, &annot_color);
+        dotplot.add_annotation(&rannot, &qannot, annot_color);
         Context {
             basename,
             rseq,
@@ -399,7 +399,7 @@ impl<'a> Context<'a> {
     fn flush(&mut self) {
         let new_dotplot = || {
             let mut dotplot = DotPlot::new(&self.rseq, &self.qseq, self.args.base_per_pixel, self.dot_color, self.appearance);
-            dotplot.add_annotation(&self.rannot, &self.qannot, &self.annot_color);
+            dotplot.add_annotation(&self.rannot, &self.qannot, self.annot_color);
             dotplot
         };
         let dotplot = std::mem::replace(&mut self.dotplot, new_dotplot());
