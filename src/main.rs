@@ -3,13 +3,12 @@ mod parser;
 use crate::parser::{SeedParser, SeedToken};
 use clap::Parser;
 use plotters::prelude::*;
+use std::collections::HashMap;
 use std::io::{BufRead, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use tempfile::NamedTempFile;
-use tenten::{
-    AxisAppearance, DensityColorMap, DotPlot, DotPlotAppearance, RGBColor, RangeFormat, SequenceRange, TextStyle, load_sequence_range, plot,
-};
+use tenten::*;
 
 #[derive(Clone, Debug, Parser)]
 #[command(version)]
@@ -105,6 +104,22 @@ pub struct Args {
     )]
     pub query_range_format: RangeFormat,
 
+    #[clap(
+        short = 'N',
+        long,
+        help = "Parse axis range from name (in the \"chr7:6000000-6300000\" format)",
+        default_value = "false"
+    )]
+    pub parse_range_from_name: bool,
+
+    #[clap(long, help = "Annotation file for the reference (in BED format)")]
+    pub reference_annotation: Option<String>,
+
+    #[clap(long, help = "Annotation file for the query (in BED format)")]
+    pub query_annotation: Option<String>,
+
+    // #[clap(short = 'A', long, help = "Annotation color configuration in yaml")]
+    // pub annotation_color: Option<String>,
     #[clap(short = 'o', long, help = "Output filename (prefix if split plot)", default_value = "out.png")]
     pub output: String,
 
@@ -215,27 +230,35 @@ struct Context<'a> {
     rseq: Vec<SequenceRange>,
     qseq: Vec<SequenceRange>,
     dotplot: DotPlot<'a>,
-    color_map: &'a DensityColorMap,
+    dot_color: &'a DensityColorMap,
+    rannot: Vec<SequenceRange>,
+    qannot: Vec<SequenceRange>,
+    annot_color: &'a AnnotationColorMap,
     appearance: &'a DotPlotAppearance<'a>,
     args: Args,
 }
 
 impl<'a> Context<'a> {
-    fn new(args: &Args, color_map: &'a DensityColorMap, appearance: &'a DotPlotAppearance<'a>) -> Self {
+    fn new(
+        args: &Args,
+        dot_color: &'a DensityColorMap,
+        annot_color: &'a AnnotationColorMap,
+        appearance: &'a DotPlotAppearance<'a>,
+    ) -> Self {
         let (mut rseq, mut qseq) = if let Some(query) = &args.query {
-            let rseq = load_sequence_range(&args.reference, &RangeFormat::Fasta).unwrap();
-            let qseq = load_sequence_range(query, &RangeFormat::Fasta).unwrap();
+            let rseq = load_sequence_range(&args.reference, RangeFormat::Fasta).unwrap();
+            let qseq = load_sequence_range(query, RangeFormat::Fasta).unwrap();
             (rseq, qseq)
         } else {
             (Vec::new(), Vec::new())
         };
 
         if let Some(reference_range) = &args.reference_range {
-            let rcrop = load_sequence_range(reference_range, &args.reference_range_format).unwrap();
+            let rcrop = load_sequence_range(reference_range, args.reference_range_format).unwrap();
             rseq = filter_range(&rseq, &rcrop);
         }
         if let Some(query_range) = &args.query_range {
-            let qcrop = load_sequence_range(query_range, &args.query_range_format).unwrap();
+            let qcrop = load_sequence_range(query_range, args.query_range_format).unwrap();
             qseq = filter_range(&qseq, &qcrop);
         }
         let (rseq, qseq) = if args.swap_generator { (qseq, rseq) } else { (rseq, qseq) };
@@ -249,13 +272,28 @@ impl<'a> Context<'a> {
             args.output.clone()
         };
 
-        let dotplot = DotPlot::new(&rseq, &qseq, args.base_per_pixel, color_map, appearance);
+        let rannot = if let Some(reference_annotation) = &args.reference_annotation {
+            load_sequence_range(reference_annotation, RangeFormat::Bed).unwrap()
+        } else {
+            Vec::new()
+        };
+        let qannot = if let Some(query_annotation) = &args.query_annotation {
+            load_sequence_range(query_annotation, RangeFormat::Bed).unwrap()
+        } else {
+            Vec::new()
+        };
+
+        let mut dotplot = DotPlot::new(&rseq, &qseq, args.base_per_pixel, dot_color, appearance);
+        dotplot.add_annotation(&rannot, &qannot, &annot_color);
         Context {
             basename,
             rseq,
             qseq,
             dotplot,
-            color_map,
+            dot_color,
+            rannot,
+            qannot,
+            annot_color,
             appearance,
             args: args.clone(),
         }
@@ -314,10 +352,12 @@ impl<'a> Context<'a> {
     }
 
     fn flush(&mut self) {
-        let dotplot = std::mem::replace(
-            &mut self.dotplot,
-            DotPlot::new(&self.rseq, &self.qseq, self.args.base_per_pixel, self.color_map, self.appearance),
-        );
+        let new_dotplot = || {
+            let mut dotplot = DotPlot::new(&self.rseq, &self.qseq, self.args.base_per_pixel, self.dot_color, self.appearance);
+            dotplot.add_annotation(&self.rannot, &self.qannot, &self.annot_color);
+            dotplot
+        };
+        let dotplot = std::mem::replace(&mut self.dotplot, new_dotplot());
         if self.args.split_plot {
             for dotplot in dotplot.split() {
                 self.plot(&dotplot);
@@ -401,10 +441,17 @@ fn main() {
     let stream = std::io::BufReader::new(stream);
 
     let min_density = args.min_density.max(0.000001);
-    let color_map = DensityColorMap {
+    let dot_color = DensityColorMap {
         palette: [RGBColor(255, 0, 64), RGBColor(0, 64, 255)],
         max_density: args.density * args.density / min_density,
         min_density,
+    };
+    let annot_color = AnnotationColorMap {
+        palette: HashMap::new(),
+        default: RGBColor(0, 0, 0),
+        alpha: 0.95,
+        prefix_match: true,
+        exact_match: false,
     };
 
     // create dotplot
@@ -432,7 +479,7 @@ fn main() {
         y_seq_name_setback: 35,
     };
     // parse the stream
-    let mut ctx = Context::new(&args, &color_map, &appearance);
+    let mut ctx = Context::new(&args, &dot_color, &annot_color, &appearance);
     let parser = SeedParser::new(stream.lines(), args.swap_generator);
     for token in parser {
         ctx.process_token(token);

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 #[derive(Copy, Clone, Debug)]
 pub struct DensityColorMap {
-    pub palette: [plotters::prelude::RGBColor; 2],
+    pub palette: [RGBColor; 2],
     pub max_density: f64,
     pub min_density: f64,
 }
@@ -46,14 +46,15 @@ impl DensityColorPicker {
 
 #[derive(Clone, Debug)]
 pub struct AnnotationColorMap {
-    pub palette: HashMap<String, plotters::prelude::RGBColor>,
+    pub palette: HashMap<String, RGBColor>,
+    pub default: RGBColor,
     pub alpha: f64,
     pub prefix_match: bool,
     pub exact_match: bool,
 }
 
 impl AnnotationColorMap {
-    pub fn add_annotation(&mut self, name: String, color: plotters::prelude::RGBColor) {
+    pub fn add_annotation(&mut self, name: String, color: RGBColor) {
         self.palette.insert(name, color);
     }
 
@@ -71,19 +72,20 @@ impl AnnotationColorMap {
             let color = color.mix(self.alpha);
             v.push((re, color));
         }
-        AnnotationColorPicker { v }
+        let default = self.default.mix(self.alpha);
+        AnnotationColorPicker { v, default }
     }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct AnnotationColorPicker {
     v: Vec<(Regex, RGBAColor)>,
+    default: RGBAColor,
 }
 
 impl AnnotationColorPicker {
-    pub fn get_color(&self, name: &str) -> Option<RGBAColor> {
-        let max = self
-            .v
+    pub fn get_color(&self, name: &str) -> RGBAColor {
+        self.v
             .iter()
             .filter_map(|(regex, color)| {
                 if let Some(m) = regex.find(name) {
@@ -93,9 +95,9 @@ impl AnnotationColorPicker {
                     None
                 }
             })
-            .max_by_key(|(len, _)| *len);
-
-        if let Some((_, color)) = max { Some(color.clone()) } else { None }
+            .max_by_key(|(len, _)| *len)
+            .unwrap_or((0, self.default.clone()))
+            .1
     }
 }
 

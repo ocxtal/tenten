@@ -4,7 +4,7 @@
 
 use crate::dotplot::Direction;
 use crate::dotplot::axis::{Axis, AxisAppearance, Tick};
-use crate::dotplot::color::DensityColorMap;
+use crate::dotplot::color::{AnnotationColorMap, DensityColorMap};
 use crate::dotplot::layout::{Layout, LayoutElem, LayoutMargin, RectAnchor};
 use crate::dotplot::plane::DotPlane;
 use crate::dotplot::sequence::SequenceRange;
@@ -233,6 +233,19 @@ impl<'a> DotPlot<'a> {
             self.planes.push(plane);
         }
         log::debug!("query added: {:?}, {:}", &q.name, self.tot_size);
+    }
+
+    pub fn add_annotation(&mut self, r: &[SequenceRange], q: &[SequenceRange], color_map: &AnnotationColorMap) {
+        for (rid, rseq) in self.rseq.iter().enumerate() {
+            let rannot = r.iter().filter_map(|x| rseq.subrange(x)).collect::<Vec<_>>();
+            for (qid, qseq) in self.qseq.iter().enumerate() {
+                let qannot = q.iter().filter_map(|x| qseq.subrange(x)).collect::<Vec<_>>();
+                let pair_id = (qid << 32) | rid;
+                if let Some(&plane_index) = self.pair_to_plane.get(&pair_id) {
+                    self.planes[plane_index].add_annotation(&rannot, &qannot, color_map);
+                }
+            }
+        }
     }
 
     pub fn append_seed(&mut self, rname: &str, rpos: usize, is_rev: bool, qname: &str, qpos: usize) {

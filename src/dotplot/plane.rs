@@ -53,6 +53,14 @@ impl DotPlane {
         }
     }
 
+    pub fn add_annotation(&mut self, r: &[SequenceRange], q: &[SequenceRange], color_map: &AnnotationColorMap) {
+        self.annot = Some(DotPlaneAnnotation {
+            rannot: r.to_vec(),
+            qannot: q.to_vec(),
+            picker: color_map.to_picker(),
+        });
+    }
+
     pub fn append_seed(&mut self, rpos: usize, qpos: usize, is_rev: bool) {
         if !self.rrange.contains(&rpos) || !self.qrange.contains(&qpos) {
             return;
@@ -70,14 +78,6 @@ impl DotPlane {
 
     pub fn get_seed_count(&self) -> usize {
         self.cnt.iter().map(|x| x[0] as usize + x[1] as usize).sum::<usize>()
-    }
-
-    pub fn add_annotation(&mut self, r: &[SequenceRange], q: &[SequenceRange], color_map: &AnnotationColorMap) {
-        self.annot = Some(DotPlaneAnnotation {
-            rannot: r.to_vec(),
-            qannot: q.to_vec(),
-            picker: color_map.to_picker(),
-        });
     }
 }
 
@@ -105,32 +105,28 @@ where
         if let Some(annot) = &self.annot {
             for r in annot.rannot.iter() {
                 if let Some(name) = r.annotation.as_ref() {
-                    if let Some(color) = annot.picker.get_color(name) {
-                        let cr = color.color();
-                        let start = r.range.start / self.base_per_pixel;
-                        let end = r.range.end / self.base_per_pixel;
-                        backend.draw_rect(
-                            (pos.0 + start as i32, pos.1),
-                            (pos.0 + end as i32, pos.1 + self.height as i32),
-                            &cr,
-                            true,
-                        )?;
-                    }
+                    let cr = annot.picker.get_color(name).color();
+                    let start = r.range.start / self.base_per_pixel;
+                    let end = r.range.end / self.base_per_pixel;
+                    backend.draw_rect(
+                        (pos.0 + start as i32, pos.1),
+                        (pos.0 + end as i32, pos.1 + self.height as i32),
+                        &cr,
+                        true,
+                    )?;
                 }
             }
             for q in annot.qannot.iter() {
                 if let Some(name) = q.annotation.as_ref() {
-                    if let Some(color) = annot.picker.get_color(name) {
-                        let cr = color.color();
-                        let start = q.range.start / self.base_per_pixel;
-                        let end = q.range.end / self.base_per_pixel;
-                        backend.draw_rect(
-                            (pos.0, pos.1 + start as i32),
-                            (pos.0 + self.width as i32, pos.1 + end as i32),
-                            &cr,
-                            true,
-                        )?;
-                    }
+                    let cr = annot.picker.get_color(name).color();
+                    let start = q.range.start / self.base_per_pixel;
+                    let end = q.range.end / self.base_per_pixel;
+                    backend.draw_rect(
+                        (pos.0, pos.1 + start as i32),
+                        (pos.0 + self.width as i32, pos.1 + end as i32),
+                        &cr,
+                        true,
+                    )?;
                 }
             }
         }

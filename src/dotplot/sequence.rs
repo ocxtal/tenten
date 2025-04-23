@@ -27,6 +27,22 @@ impl SequenceRange {
     pub fn to_path_string(&self) -> String {
         format!("{}_{}_{}", self.name, self.range.start, self.range.end)
     }
+
+    pub fn subrange(&self, other: &SequenceRange) -> Option<SequenceRange> {
+        if self.name != other.name {
+            return None;
+        }
+        let start = self.range.start.max(other.range.start);
+        let end = self.range.end.min(other.range.end);
+        if start >= end {
+            return None;
+        }
+        Some(SequenceRange {
+            name: self.name.clone(),
+            range: start..end,
+            annotation: None,
+        })
+    }
 }
 
 impl fmt::Display for SequenceRange {
@@ -129,7 +145,7 @@ fn load_sequence_range_text(file: &str) -> Result<Vec<SequenceRange>> {
     Ok(v)
 }
 
-pub fn load_sequence_range(file: &str, format: &RangeFormat) -> Result<Vec<SequenceRange>> {
+pub fn load_sequence_range(file: &str, format: RangeFormat) -> Result<Vec<SequenceRange>> {
     match format {
         RangeFormat::Fasta => load_sequence_range_fasta(file),
         RangeFormat::Bed => load_sequence_range_bed(file),

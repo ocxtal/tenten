@@ -7,7 +7,7 @@ mod sequence;
 
 use anyhow::Result;
 pub use axis::{AxisAppearance, LengthScale};
-pub use color::{ColorScale, DensityColorMap};
+pub use color::{AnnotationColorMap, ColorScale, DensityColorMap};
 pub use plane::DotPlane;
 pub use plot::{DotPlot, DotPlotAppearance};
 pub use plotters::prelude::{RGBColor, TextStyle};
