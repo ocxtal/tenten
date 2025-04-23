@@ -103,31 +103,37 @@ where
 
         // first draw the annotations
         if let Some(annot) = &self.annot {
+            eprintln!("annot: {annot:?}");
             for r in annot.rannot.iter() {
-                if let Some(name) = r.annotation.as_ref() {
-                    let cr = annot.picker.get_color(name).color();
-                    let start = r.range.start / self.base_per_pixel;
-                    let end = r.range.end / self.base_per_pixel;
-                    backend.draw_rect(
-                        (pos.0 + start as i32, pos.1),
-                        (pos.0 + end as i32, pos.1 + self.height as i32),
-                        &cr,
-                        true,
-                    )?;
-                }
+                eprintln!("{:?}", &r.annotation);
+                let cr = if let Some(name) = r.annotation.as_ref() {
+                    annot.picker.get_color(name).color()
+                } else {
+                    annot.picker.default_color().color()
+                };
+                let start = r.range.start / self.base_per_pixel;
+                let end = r.range.end / self.base_per_pixel;
+                backend.draw_rect(
+                    (pos.0 + start as i32, pos.1),
+                    (pos.0 + end as i32, pos.1 + self.height as i32),
+                    &cr,
+                    true,
+                )?;
             }
             for q in annot.qannot.iter() {
-                if let Some(name) = q.annotation.as_ref() {
-                    let cr = annot.picker.get_color(name).color();
-                    let start = q.range.start / self.base_per_pixel;
-                    let end = q.range.end / self.base_per_pixel;
-                    backend.draw_rect(
-                        (pos.0, pos.1 + start as i32),
-                        (pos.0 + self.width as i32, pos.1 + end as i32),
-                        &cr,
-                        true,
-                    )?;
-                }
+                let cr = if let Some(name) = q.annotation.as_ref() {
+                    annot.picker.get_color(name).color()
+                } else {
+                    annot.picker.default_color().color()
+                };
+                let start = q.range.start / self.base_per_pixel;
+                let end = q.range.end / self.base_per_pixel;
+                backend.draw_rect(
+                    (pos.0, pos.1 + start as i32),
+                    (pos.0 + self.width as i32, pos.1 + end as i32),
+                    &cr,
+                    true,
+                )?;
             }
         }
 

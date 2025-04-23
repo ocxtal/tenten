@@ -99,6 +99,10 @@ impl AnnotationColorPicker {
             .unwrap_or((0, self.default.clone()))
             .1
     }
+
+    pub fn default_color(&self) -> RGBAColor {
+        self.default
+    }
 }
 
 #[derive(Clone)]

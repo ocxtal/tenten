@@ -494,7 +494,7 @@ fn main() {
     let annot_color = AnnotationColorMap {
         palette: HashMap::new(),
         default: RGBColor(0, 0, 0),
-        alpha: 0.95,
+        alpha: 0.05,
         prefix_match: true,
         exact_match: false,
     };
