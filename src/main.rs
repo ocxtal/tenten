@@ -11,124 +11,161 @@ use std::process::{Child, Command, Stdio};
 use tempfile::NamedTempFile;
 use tenten::*;
 
+macro_rules! group_input {
+    () => {
+        "Seed generator options"
+    };
+}
+macro_rules! group_plot {
+    () => {
+        "Plot options"
+    };
+}
+macro_rules! group_range {
+    () => {
+        "Range/label options"
+    };
+}
+macro_rules! group_output {
+    () => {
+        "Output options"
+    };
+}
+
 #[derive(Clone, Debug, Parser)]
 #[command(version)]
+#[command(max_term_width = 160)]
 pub struct Args {
     #[clap(
-        help = "Reference sequence (if query is passed) or seeds in minimap2 --print-seeds format",
-        name = "REFERENCE or SEED FILE"
+        help = "Target sequence (if query is passed) or seeds in minimap2 --print-seeds format",
+        name = "TARGET SEQUENCE or PREGENERATED SEEDS"
     )]
-    pub reference: String,
+    pub target: String,
 
     #[clap(help = "Query sequence")]
     pub query: Option<String>,
 
     #[clap(
+        help_heading = group_input!(),
         short = 'P',
         long,
         help = "Seed generator command template",
+        name = "COMMAND TEMPLATE",
         default_value = "minimap2 -t1 --print-seeds {0} {1}"
     )]
     pub seed_generator: Option<String>,
 
-    #[clap(short = 'O', long, help = "Use stdout of seed generator, instead of stderr")]
+    #[clap(help_heading = group_input!(), short = 'O', long, help = "Use stdout of seed generator, instead of stderr")]
     pub use_stdout: bool,
 
-    #[clap(short = 'b', long, help = "Bases per pixel", default_value = "100")]
+    #[clap(help_heading = group_input!(), short = 'x', long, help = "Swap target and query for seed generator", default_value = "false")]
+    pub swap_generator: bool,
+
+    #[clap(help_heading = group_plot!(), short = 'b', long, help = "Bases per pixel", default_value = "100", name = "INT")]
     pub base_per_pixel: usize,
 
     #[clap(
+        help_heading = group_plot!(),
         short = 'D',
         long,
         help = "Density of seeds (#per 1kbp square) that corresponds to 50% heatmap scale",
+        name = "FLOAT",
         default_value = "20.0"
     )]
     pub density: f64,
 
     #[clap(
+        help_heading = group_plot!(),
         short = 'M',
         long,
         help = "Do not output image if seed density is less than this value",
+        name = "FLOAT",
         default_value = "0.1"
     )]
     pub min_density: f64,
 
     #[clap(
+        help_heading = group_plot!(),
         short = 'm',
         long,
         help = "Do not output image if #seed is less than this value",
+        name = "FLOAT",
         default_value = "0"
     )]
     pub min_count: usize,
 
-    #[clap(short = 'x', long, help = "Swap reference and query for seed generator", default_value = "false")]
-    pub swap_generator: bool,
-
-    #[clap(short = 'X', long, help = "Swap x/y axes of the output plots", default_value = "false")]
+    #[clap(help_heading = group_plot!(), short = 'X', long, help = "Swap x/y axes of the output plots", default_value = "false")]
     pub swap_plot_axes: bool,
 
     #[clap(
-        short = 'E',
-        long,
-        help = "Extract sequence range from its name on plotting (in the \"chr7:6000000-6300000\" format)",
-        default_value = "false"
-    )]
-    pub extract_range_from_name: bool,
-
-    #[clap(
+        help_heading = group_range!(),
         short = 'r',
         long,
-        help = "Plot seeds only in the ranges in the file for references. Accepts BED or \"chr7:6000000-6300000\" format."
+        help = "Plot seeds only in the ranges in the file. Seeds outside the ranges are ignored. Accepts BED or \"chr7:6000000-6300000\" format.",
+        name = "FILE"
     )]
-    pub reference_range: Option<String>,
-
+    pub target_range: Option<String>,
     #[clap(
-        short = 'R',
-        long,
-        help = "Force treat the reference range file in a specific format",
-        default_value = "infer"
-    )]
-    pub reference_range_format: RangeFormat,
-
-    #[clap(
+        help_heading = group_range!(),
         short = 'q',
         long,
-        help = "Plot seeds only in the ranges in the file for queries. Accepts BED or \"chr7:6000000-6300000\" format."
+        help = "Plot seeds only in the ranges in the file for queries. Seeds outside the ranges are ignored. Accepts BED or \"chr7:6000000-6300000\" format.",
+        name = "FILE"
     )]
     pub query_range: Option<String>,
 
     #[clap(
+        help_heading = group_range!(),
+        short = 'R',
+        long,
+        help = "Force treat the target range file in a specific format",
+        name = "FORMAT",
+        default_value = "infer"
+    )]
+    pub target_range_format: RangeFormat,
+
+    #[clap(
+        help_heading = group_range!(),
         short = 'Q',
         long,
         help = "Force treat the query range file in a specific format",
+        name = "FORMAT",
         default_value = "infer"
     )]
     pub query_range_format: RangeFormat,
 
-    #[clap(long, help = "Regex to extract labels from sequence name (reference side)")]
-    pub reference_label_extractor: Option<String>,
+    #[clap(help_heading = group_range!(), long, help = "Regex to extract labels from sequence name (target side)", name = "REGEX")]
+    pub target_label_extractor: Option<String>,
 
-    #[clap(long, help = "Regex to extract labels from sequence name (query side)")]
+    #[clap(help_heading = group_range!(), long, help = "Regex to extract labels from sequence name (query side)", name = "REGEX")]
     pub query_label_extractor: Option<String>,
 
-    #[clap(long, help = "Annotation file for the reference (in BED format)")]
-    pub reference_annotation: Option<String>,
+    #[clap(help_heading = group_range!(), long, help = "Annotation file for the target (in BED format)", name = "FILE")]
+    pub target_annotation: Option<String>,
 
-    #[clap(long, help = "Annotation file for the query (in BED format)")]
+    #[clap(help_heading = group_range!(), long, help = "Annotation file for the query (in BED format)", name = "FILE")]
     pub query_annotation: Option<String>,
 
     // #[clap(short = 'A', long, help = "Annotation color configuration in yaml")]
     // pub annotation_color: Option<String>,
-    #[clap(short = 'o', long, help = "Output filename (prefix if split plot)", default_value = "out.png")]
+    #[clap(
+        help_heading = group_output!(),
+        short = 'o',
+        long,
+        help = "Output filename (prefix if split plot)",
+        default_value = "out.png",
+        name = "FILE"
+    )]
     pub output: String,
 
-    #[clap(short = 'f', long, help = "Create directory if it doesn't exist")]
+    #[clap(help_heading = group_output!(), short = 'F', long, help = "Create directory if it doesn't exist")]
     pub create_missing_dir: bool,
 
-    #[clap(short = 'p', long, help = "Create plot for each reference/query pair", default_value = "false")]
+    #[clap(help_heading = group_output!(), short = 'p', long, help = "Create plot for each target/query pair", default_value = "false")]
     pub split_plot: bool,
 
     #[clap(
+        help_heading = group_output!(),
         short = 'S',
         long,
         help = "Assume the seed generator output is sorted (reduces memory usage when --split-plot)",
@@ -137,6 +174,7 @@ pub struct Args {
     pub sorted: bool,
 
     #[clap(
+        help_heading = group_output!(),
         short = 'T',
         long,
         help = "Print plot to terminal (encoded to iTerm2 image format)",
@@ -144,10 +182,10 @@ pub struct Args {
     )]
     pub iterm2: bool,
 
-    #[clap(short = 'W', long, help = "Width in characters when printing plot to terminal")]
+    #[clap(help_heading = group_output!(), short = 'W', long, help = "Width in characters when printing plot to terminal", name = "INT")]
     pub iterm2_width: Option<usize>,
 
-    #[clap(short = 'H', long, help = "Height in characters when printing plot to terminal")]
+    #[clap(help_heading = group_output!(), short = 'H', long, help = "Height in characters when printing plot to terminal", name = "INT")]
     pub iterm2_height: Option<usize>,
 
     #[clap(long, help = "Suppress logs")]
@@ -275,15 +313,15 @@ impl<'a> Context<'a> {
         appearance: &'a DotPlotAppearance<'a>,
     ) -> Self {
         let (rseq, qseq) = if let Some(query) = &args.query {
-            let rseq = load_sequence_range(&args.reference, RangeFormat::Fasta).unwrap();
+            let rseq = load_sequence_range(&args.target, RangeFormat::Fasta).unwrap();
             let qseq = load_sequence_range(query, RangeFormat::Fasta).unwrap();
             (rseq, qseq)
         } else {
             (Vec::new(), Vec::new())
         };
 
-        let mut rseq = if let Some(reference_range) = &args.reference_range {
-            load_sequence_range(reference_range, args.reference_range_format).unwrap()
+        let mut rseq = if let Some(target_range) = &args.target_range {
+            load_sequence_range(target_range, args.target_range_format).unwrap()
         } else {
             rseq
         };
@@ -293,7 +331,7 @@ impl<'a> Context<'a> {
             qseq
         };
 
-        if let Some(ref re) = args.reference_label_extractor {
+        if let Some(ref re) = args.target_label_extractor {
             let extractor = LabelExtractor::new(re);
             for seq in &mut rseq {
                 extractor.patch_sequence(seq);
@@ -308,7 +346,7 @@ impl<'a> Context<'a> {
 
         let (rseq, qseq) = if args.swap_generator { (qseq, rseq) } else { (rseq, qseq) };
 
-        log::debug!("reference ranges: {rseq:?}");
+        log::debug!("target ranges: {rseq:?}");
         log::debug!("query ranges: {qseq:?}");
 
         let basename = if let Some(basename) = args.output.strip_suffix(".png") {
@@ -317,8 +355,8 @@ impl<'a> Context<'a> {
             args.output.clone()
         };
 
-        let rannot = if let Some(reference_annotation) = &args.reference_annotation {
-            load_sequence_range(reference_annotation, RangeFormat::Bed).unwrap()
+        let rannot = if let Some(target_annotation) = &args.target_annotation {
+            load_sequence_range(target_annotation, RangeFormat::Bed).unwrap()
         } else {
             Vec::new()
         };
@@ -350,7 +388,7 @@ impl<'a> Context<'a> {
             format!(
                 "{}.{}.{}.png",
                 &self.basename,
-                dotplot.references()[0].to_path_string(),
+                dotplot.targets()[0].to_path_string(),
                 dotplot.queries()[0].to_path_string()
             )
         } else {
@@ -382,7 +420,7 @@ impl<'a> Context<'a> {
         if count < self.args.min_count {
             log::info!(
                 "skip {:?} x {:?} as seed count {} < {}",
-                dotplot.references(),
+                dotplot.targets(),
                 dotplot.queries(),
                 count,
                 self.args.min_count
@@ -412,12 +450,12 @@ impl<'a> Context<'a> {
         }
     }
 
-    fn add_reference(&mut self, r: &SequenceRange) {
+    fn add_target(&mut self, r: &SequenceRange) {
         if self.args.split_plot && self.args.sorted && self.dotplot.has_plane() {
             self.flush();
         }
         if self.rseq.is_empty() {
-            self.dotplot.add_reference(r);
+            self.dotplot.add_target(r);
         }
     }
 
@@ -436,7 +474,7 @@ impl<'a> Context<'a> {
 
     fn process_token(&mut self, token: SeedToken) {
         match token {
-            SeedToken::NewReference(r) => self.add_reference(&r),
+            SeedToken::NewTarget(r) => self.add_target(&r),
             SeedToken::NewQuery(q) => self.add_query(&q),
             SeedToken::Seed(rname, rpos, is_rev, qname, qpos) => self.append_seed(&rname, rpos, is_rev, &qname, qpos),
         }
@@ -475,13 +513,13 @@ fn main() {
     let stream: Box<dyn Read> = if let Some(query) = &args.query {
         let seed_generator = args.seed_generator.as_ref().unwrap();
         let inputs: [&str; 2] = if args.swap_generator {
-            [query, &args.reference]
+            [query, &args.target]
         } else {
-            [&args.reference, query]
+            [&args.target, query]
         };
         Box::new(SeedGeneratorCommand::new(seed_generator, inputs.as_slice(), args.use_stdout))
     } else {
-        Box::new(std::fs::File::open(&args.reference).unwrap())
+        Box::new(std::fs::File::open(&args.target).unwrap())
     };
     let stream = std::io::BufReader::new(stream);
 

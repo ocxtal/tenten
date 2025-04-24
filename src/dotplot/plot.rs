@@ -123,7 +123,7 @@ impl<'a> DotPlot<'a> {
             tot_size: 0,
         };
         for r in rseq {
-            bin.add_reference(r);
+            bin.add_target(r);
         }
         for q in qseq {
             bin.add_query(q);
@@ -186,7 +186,7 @@ impl<'a> DotPlot<'a> {
         self.app
     }
 
-    pub fn add_reference(&mut self, r: &SequenceRange) {
+    pub fn add_target(&mut self, r: &SequenceRange) {
         if !self.rdedup.insert(r.to_string()) {
             return;
         }
@@ -207,7 +207,7 @@ impl<'a> DotPlot<'a> {
             self.tot_size += plane.cnt.len();
             self.planes.push(plane);
         }
-        log::debug!("reference added: {:?}, {:}", &r.name, self.tot_size);
+        log::debug!("target added: {:?}, {:}", &r.name, self.tot_size);
     }
 
     pub fn add_query(&mut self, q: &SequenceRange) {
@@ -268,7 +268,7 @@ impl<'a> DotPlot<'a> {
         }
     }
 
-    pub fn references(&self) -> &[SequenceRange] {
+    pub fn targets(&self) -> &[SequenceRange] {
         &self.rseq
     }
 

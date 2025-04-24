@@ -15,7 +15,7 @@ where
 
 #[derive(Debug)]
 pub enum SeedToken {
-    NewReference(SequenceRange),
+    NewTarget(SequenceRange),
     NewQuery(SequenceRange),
     Seed(String, usize, bool, String, usize),
 }
@@ -40,7 +40,7 @@ where
 
         self.query_cache = Some(name.clone());
         if self.swap {
-            Some(SeedToken::NewReference(SequenceRange {
+            Some(SeedToken::NewTarget(SequenceRange {
                 name,
                 range: 0..len,
                 annotation: None,
@@ -88,7 +88,7 @@ where
         if is_query {
             Some(SeedToken::NewQuery(s))
         } else {
-            Some(SeedToken::NewReference(s))
+            Some(SeedToken::NewTarget(s))
         }
     }
 
