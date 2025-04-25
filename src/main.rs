@@ -99,7 +99,7 @@ pub struct Args {
 
     #[clap(
         help_heading = group_range!(),
-        short = 'r',
+        short = 't',
         long,
         help = "Plot seeds only in the ranges in the file. Seeds outside the ranges are ignored. Accepts BED or \"chr7:6000000-6300000\" format.",
         name = "FILE"
@@ -109,14 +109,14 @@ pub struct Args {
         help_heading = group_range!(),
         short = 'q',
         long,
-        help = "Plot seeds only in the ranges in the file for queries. Seeds outside the ranges are ignored. Accepts BED or \"chr7:6000000-6300000\" format.",
+        help = "Same as above for query",
         name = "FILE"
     )]
     pub query_range: Option<String>,
 
     #[clap(
         help_heading = group_range!(),
-        short = 'R',
+        short = 'T',
         long,
         help = "Force treat the target range file in a specific format",
         name = "FORMAT",
@@ -128,22 +128,22 @@ pub struct Args {
         help_heading = group_range!(),
         short = 'Q',
         long,
-        help = "Force treat the query range file in a specific format",
+        help = "Same as above for query",
         name = "FORMAT",
         default_value = "infer"
     )]
     pub query_range_format: RangeFormat,
 
-    #[clap(help_heading = group_range!(), long, help = "Regex to extract labels from sequence name (target side)", name = "REGEX")]
-    pub target_label_extractor: Option<String>,
+    #[clap(help_heading = group_range!(), long, help = "Regex to extract the name/range for use in annotation coloring and plotting from its sequence name.", name = "REGEX")]
+    pub target_extractor: Option<String>,
 
-    #[clap(help_heading = group_range!(), long, help = "Regex to extract labels from sequence name (query side)", name = "REGEX")]
-    pub query_label_extractor: Option<String>,
+    #[clap(help_heading = group_range!(), long, help = "Same as above for query", name = "REGEX")]
+    pub query_extractor: Option<String>,
 
     #[clap(help_heading = group_range!(), long, help = "Annotation file for the target (in BED format)", name = "FILE")]
     pub target_annotation: Option<String>,
 
-    #[clap(help_heading = group_range!(), long, help = "Annotation file for the query (in BED format)", name = "FILE")]
+    #[clap(help_heading = group_range!(), long, help = "Same as above for query", name = "FILE")]
     pub query_annotation: Option<String>,
 
     // #[clap(short = 'A', long, help = "Annotation color configuration in yaml")]
@@ -175,7 +175,7 @@ pub struct Args {
 
     #[clap(
         help_heading = group_output!(),
-        short = 'T',
+        short = 'I',
         long,
         help = "Print plot to terminal (encoded to iTerm2 image format)",
         default_value = "false"
@@ -272,21 +272,21 @@ impl LabelExtractor {
             if let Some(start) = cap.name("start") {
                 log::debug!("start found: {:?}", start.as_str());
                 if let Ok(start) = start.as_str().parse::<isize>() {
-                    seq.offset_to_coord_in_plot = start;
+                    seq.virtual_start = start;
                 }
             } else if let Some(offset) = cap.name("offset") {
                 log::debug!("offset found: {:?}", offset.as_str());
                 if let Ok(offset) = offset.as_str().parse::<isize>() {
-                    seq.offset_to_coord_in_plot = offset;
+                    seq.virtual_start = offset;
                 }
             }
 
             if let Some(name) = cap.name("name") {
                 log::debug!("name found: {:?}", name.as_str());
-                seq.name_in_plot = Some(name.as_str().to_string());
+                seq.virtual_name = Some(name.as_str().to_string());
             }
-            let name = seq.name_in_plot();
-            let range = seq.range_in_plot();
+            let name = seq.virtual_name();
+            let range = seq.virtual_range();
             log::debug!("sequence patched: {}:{}-{}", name, range.start, range.end);
         }
     }
@@ -331,13 +331,13 @@ impl<'a> Context<'a> {
             qseq
         };
 
-        if let Some(ref re) = args.target_label_extractor {
+        if let Some(ref re) = args.target_extractor {
             let extractor = LabelExtractor::new(re);
             for seq in &mut rseq {
                 extractor.patch_sequence(seq);
             }
         }
-        if let Some(ref re) = args.query_label_extractor {
+        if let Some(ref re) = args.query_extractor {
             let extractor = LabelExtractor::new(re);
             for seq in &mut qseq {
                 extractor.patch_sequence(seq);

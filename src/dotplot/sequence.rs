@@ -21,14 +21,14 @@ pub struct SequenceRange {
     pub name: String,
     pub range: Range<usize>,
     pub annotation: Option<String>,
-    pub name_in_plot: Option<String>,
-    pub offset_to_coord_in_plot: isize,
+    pub virtual_name: Option<String>,
+    pub virtual_start: isize,
 }
 
 impl SequenceRange {
     pub fn to_path_string(&self) -> String {
-        let name = self.name_in_plot();
-        let range = self.range_in_plot();
+        let name = self.virtual_name();
+        let range = self.virtual_range();
         format!("{}_{}_{}", name, range.start, range.end)
     }
 
@@ -45,18 +45,18 @@ impl SequenceRange {
             name: self.name.clone(),
             range: start..end,
             annotation: None,
-            name_in_plot: None,
-            offset_to_coord_in_plot: 0,
+            virtual_name: None,
+            virtual_start: 0,
         })
     }
 
-    pub fn name_in_plot(&self) -> &str {
-        if let Some(ref name) = self.name_in_plot { name } else { &self.name }
+    pub fn virtual_name(&self) -> &str {
+        if let Some(ref name) = self.virtual_name { name } else { &self.name }
     }
 
-    pub fn range_in_plot(&self) -> Range<isize> {
-        let start = self.range.start as isize + self.offset_to_coord_in_plot;
-        let end = self.range.end as isize + self.offset_to_coord_in_plot;
+    pub fn virtual_range(&self) -> Range<isize> {
+        let start = self.range.start as isize + self.virtual_start;
+        let end = self.range.end as isize + self.virtual_start;
         start..end
     }
 }
@@ -87,8 +87,8 @@ fn load_sequence_range_fasta(file: &str) -> Result<Vec<SequenceRange>> {
                     name,
                     range: 0..len,
                     annotation: None,
-                    name_in_plot: None,
-                    offset_to_coord_in_plot: 0,
+                    virtual_name: None,
+                    virtual_start: 0,
                 });
             }
 
@@ -104,8 +104,8 @@ fn load_sequence_range_fasta(file: &str) -> Result<Vec<SequenceRange>> {
             name,
             range: 0..len,
             annotation: None,
-            name_in_plot: None,
-            offset_to_coord_in_plot: 0,
+            virtual_name: None,
+            virtual_start: 0,
         });
     }
 
@@ -132,8 +132,8 @@ fn load_sequence_range_bed(file: &str) -> Result<Vec<SequenceRange>> {
             name,
             range: start..end,
             annotation,
-            name_in_plot: None,
-            offset_to_coord_in_plot: 0,
+            virtual_name: None,
+            virtual_start: 0,
         })
     }
     Ok(v)
@@ -162,8 +162,8 @@ fn load_sequence_range_text(file: &str) -> Result<Vec<SequenceRange>> {
             name,
             range: start..end,
             annotation: None,
-            name_in_plot: None,
-            offset_to_coord_in_plot: 0,
+            virtual_name: None,
+            virtual_start: 0,
         })
     }
     Ok(v)

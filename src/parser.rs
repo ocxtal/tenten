@@ -44,16 +44,16 @@ where
                 name,
                 range: 0..len,
                 annotation: None,
-                name_in_plot: None,
-                offset_to_coord_in_plot: 0,
+                virtual_name: None,
+                virtual_start: 0,
             }))
         } else {
             Some(SeedToken::NewQuery(SequenceRange {
                 name,
                 range: 0..len,
                 annotation: None,
-                name_in_plot: None,
-                offset_to_coord_in_plot: 0,
+                virtual_name: None,
+                virtual_start: 0,
             }))
         }
     }

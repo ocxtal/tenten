@@ -337,7 +337,7 @@ impl<'a> DotPlot<'a> {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
         let ticks = Tick::build_vec(
             (0, 0),
-            seq.range_in_plot(),
+            seq.virtual_range(),
             Direction::Right,
             Direction::Down,
             axis,
@@ -367,7 +367,7 @@ impl<'a> DotPlot<'a> {
         let style = &self.app.x_seq_name_style.pos(Pos::new(HPos::Center, VPos::Top));
         let range = layout.get_range("seq_names").unwrap();
         let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
-        backend.draw_text(seq.name_in_plot(), style, shift((x + width as i32 / 2, y)))?;
+        backend.draw_text(seq.virtual_name(), style, shift((x + width as i32 / 2, y)))?;
         Ok(())
     }
 
@@ -405,7 +405,7 @@ impl<'a> DotPlot<'a> {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
         let ticks = Tick::build_vec(
             (0, 0),
-            seq.range_in_plot(),
+            seq.virtual_range(),
             Direction::Up,
             Direction::Left,
             axis,
@@ -440,7 +440,7 @@ impl<'a> DotPlot<'a> {
             .transform(FontTransform::Rotate270);
         let range = layout.get_range("seq_names").unwrap();
         let (x, y) = range.get_relative_pos(RectAnchor::BottomRight, RectAnchor::BottomRight);
-        backend.draw_text(seq.name_in_plot(), style, shift((x, y - height as i32 / 2)))?;
+        backend.draw_text(seq.virtual_name(), style, shift((x, y - height as i32 / 2)))?;
         Ok(())
     }
 
