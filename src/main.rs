@@ -168,7 +168,7 @@ pub struct Args {
         help_heading = group_output!(),
         short = 'S',
         long,
-        help = "Assume the seed generator output is sorted (reduces memory usage when --split-plot)",
+        help = "Assume the seed generator output is sorted by query and reference names (reduces memory usage when --split-plot)",
         default_value = "false"
     )]
     pub sorted: bool,
@@ -365,6 +365,8 @@ impl<'a> Context<'a> {
         } else {
             Vec::new()
         };
+        log::debug!("target annotations: {rannot:?}");
+        log::debug!("query annotations: {qannot:?}");
 
         let mut dotplot = DotPlot::new(&rseq, &qseq, args.base_per_pixel, dot_color, appearance);
         dotplot.add_annotation(&rannot, &qannot, annot_color);

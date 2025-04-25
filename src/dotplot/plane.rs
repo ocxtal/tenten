@@ -103,9 +103,7 @@ where
 
         // first draw the annotations
         if let Some(annot) = &self.annot {
-            eprintln!("annot: {annot:?}");
             for r in annot.rannot.iter() {
-                eprintln!("{:?}", &r.annotation);
                 let cr = if let Some(name) = r.annotation.as_ref() {
                     annot.picker.get_color(name).color()
                 } else {
