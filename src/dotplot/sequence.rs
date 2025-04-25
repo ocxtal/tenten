@@ -22,7 +22,7 @@ pub struct SequenceRange {
     pub range: Range<usize>,
     pub annotation: Option<String>,
     pub virtual_name: Option<String>,
-    pub virtual_start: isize,
+    pub virtual_start: Option<isize>,
 }
 
 impl SequenceRange {
@@ -32,32 +32,17 @@ impl SequenceRange {
         format!("{}_{}_{}", name, range.start, range.end)
     }
 
-    pub fn subrange(&self, other: &SequenceRange) -> Option<SequenceRange> {
-        if self.name != other.name {
-            return None;
-        }
-        let start = self.range.start.max(other.range.start);
-        let end = self.range.end.min(other.range.end);
-        if start >= end {
-            return None;
-        }
-        Some(SequenceRange {
-            name: self.name.clone(),
-            range: start..end,
-            annotation: None,
-            virtual_name: None,
-            virtual_start: 0,
-        })
-    }
-
     pub fn virtual_name(&self) -> &str {
         if let Some(ref name) = self.virtual_name { name } else { &self.name }
     }
 
     pub fn virtual_range(&self) -> Range<isize> {
-        let start = self.range.start as isize + self.virtual_start;
-        let end = self.range.end as isize + self.virtual_start;
-        start..end
+        let start = if let Some(start) = self.virtual_start {
+            start
+        } else {
+            self.range.start as isize
+        };
+        start..start + self.range.len() as isize
     }
 }
 
@@ -88,7 +73,7 @@ fn load_sequence_range_fasta(file: &str) -> Result<Vec<SequenceRange>> {
                     range: 0..len,
                     annotation: None,
                     virtual_name: None,
-                    virtual_start: 0,
+                    virtual_start: None,
                 });
             }
 
@@ -105,7 +90,7 @@ fn load_sequence_range_fasta(file: &str) -> Result<Vec<SequenceRange>> {
             range: 0..len,
             annotation: None,
             virtual_name: None,
-            virtual_start: 0,
+            virtual_start: None,
         });
     }
 
@@ -133,7 +118,7 @@ fn load_sequence_range_bed(file: &str) -> Result<Vec<SequenceRange>> {
             range: start..end,
             annotation,
             virtual_name: None,
-            virtual_start: 0,
+            virtual_start: None,
         })
     }
     Ok(v)
@@ -163,7 +148,7 @@ fn load_sequence_range_text(file: &str) -> Result<Vec<SequenceRange>> {
             range: start..end,
             annotation: None,
             virtual_name: None,
-            virtual_start: 0,
+            virtual_start: None,
         })
     }
     Ok(v)

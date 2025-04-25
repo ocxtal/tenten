@@ -235,10 +235,29 @@ impl<'a> DotPlot<'a> {
     }
 
     pub fn add_annotation(&mut self, r: &[SequenceRange], q: &[SequenceRange], color_map: &AnnotationColorMap) {
+        let intersection = |x: &SequenceRange, y: &SequenceRange| -> Option<SequenceRange> {
+            if x.virtual_name() != y.virtual_name() {
+                return None;
+            }
+            let (xrange, yrange) = (x.virtual_range(), y.virtual_range());
+            let start = std::cmp::max(yrange.start - xrange.start, 0);
+            let end = std::cmp::min(yrange.end - xrange.start, xrange.len() as isize);
+            if start >= end {
+                return None;
+            }
+            Some(SequenceRange {
+                name: x.name.clone(),
+                range: start as usize..end as usize,
+                annotation: None,
+                virtual_name: None,
+                virtual_start: None,
+            })
+        };
+
         for (rid, rseq) in self.rseq.iter().enumerate() {
-            let rannot = r.iter().filter_map(|x| rseq.subrange(x)).collect::<Vec<_>>();
+            let rannot = r.iter().filter_map(|x| intersection(rseq, x)).collect::<Vec<_>>();
             for (qid, qseq) in self.qseq.iter().enumerate() {
-                let qannot = q.iter().filter_map(|x| qseq.subrange(x)).collect::<Vec<_>>();
+                let qannot = q.iter().filter_map(|x| intersection(qseq, x)).collect::<Vec<_>>();
                 let pair_id = (qid << 32) | rid;
                 if let Some(&plane_index) = self.pair_to_plane.get(&pair_id) {
                     self.planes[plane_index].add_annotation(&rannot, &qannot, color_map);

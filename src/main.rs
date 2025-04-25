@@ -134,7 +134,7 @@ pub struct Args {
     )]
     pub query_range_format: RangeFormat,
 
-    #[clap(help_heading = group_range!(), long, help = "Regex to extract the name/range for use in annotation coloring and plotting from its sequence name.", name = "REGEX")]
+    #[clap(help_heading = group_range!(), long, help = "Regex to extract virtual name and start coordinate from its sequence name, for use in annotation coloring and plotting.", name = "REGEX")]
     pub target_extractor: Option<String>,
 
     #[clap(help_heading = group_range!(), long, help = "Same as above for query", name = "REGEX")]
@@ -272,12 +272,12 @@ impl LabelExtractor {
             if let Some(start) = cap.name("start") {
                 log::debug!("start found: {:?}", start.as_str());
                 if let Ok(start) = start.as_str().parse::<isize>() {
-                    seq.virtual_start = start;
+                    seq.virtual_start = Some(start);
                 }
             } else if let Some(offset) = cap.name("offset") {
                 log::debug!("offset found: {:?}", offset.as_str());
                 if let Ok(offset) = offset.as_str().parse::<isize>() {
-                    seq.virtual_start = offset;
+                    seq.virtual_start = Some(offset);
                 }
             }
 

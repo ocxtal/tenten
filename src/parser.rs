@@ -45,7 +45,7 @@ where
                 range: 0..len,
                 annotation: None,
                 virtual_name: None,
-                virtual_start: 0,
+                virtual_start: None,
             }))
         } else {
             Some(SeedToken::NewQuery(SequenceRange {
@@ -53,7 +53,7 @@ where
                 range: 0..len,
                 annotation: None,
                 virtual_name: None,
-                virtual_start: 0,
+                virtual_start: None,
             }))
         }
     }
