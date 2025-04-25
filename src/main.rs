@@ -38,7 +38,7 @@ macro_rules! group_output {
 pub struct Args {
     #[clap(
         help = "Target sequence (if query is passed) or seeds in minimap2 --print-seeds format",
-        name = "TARGET SEQUENCE or PREGENERATED SEEDS"
+        value_name = "TARGET SEQUENCE or PREGENERATED SEEDS"
     )]
     pub target: String,
 
@@ -50,46 +50,46 @@ pub struct Args {
         short = 'P',
         long,
         help = "Seed generator command template",
-        name = "COMMAND TEMPLATE",
+        value_name = "COMMAND TEMPLATE",
         default_value = "minimap2 -t1 --print-seeds {0} {1}"
     )]
     pub seed_generator: Option<String>,
 
-    #[clap(help_heading = group_input!(), short = 'O', long, help = "Use stdout of seed generator, instead of stderr")]
+    #[clap(help_heading = group_input!(), short = 'O', long, help = "Use stdout of seed generator, instead of stderr", default_value = "false")]
     pub use_stdout: bool,
 
     #[clap(help_heading = group_input!(), short = 'x', long, help = "Swap target and query for seed generator", default_value = "false")]
     pub swap_generator: bool,
 
-    #[clap(help_heading = group_plot!(), short = 'b', long, help = "Bases per pixel", default_value = "100", name = "INT")]
+    #[clap(help_heading = group_plot!(), short = 'b', long, help = "Bases per pixel", value_name = "INT", default_value = "100")]
     pub base_per_pixel: usize,
-
-    #[clap(
-        help_heading = group_plot!(),
-        short = 'D',
-        long,
-        help = "Density of seeds (#per 1kbp square) that corresponds to 50% heatmap scale",
-        name = "FLOAT",
-        default_value = "20.0"
-    )]
-    pub density: f64,
 
     #[clap(
         help_heading = group_plot!(),
         short = 'M',
         long,
+        help = "Density of seeds (#per 1kbp square) that corresponds to 50% heatmap scale",
+        value_name = "FLOAT",
+        default_value = "20.0"
+    )]
+    pub mid_density: f64,
+
+    #[clap(
+        help_heading = group_plot!(),
+        short = 'm',
+        long,
         help = "Do not output image if seed density is less than this value",
-        name = "FLOAT",
+        value_name = "FLOAT",
         default_value = "0.1"
     )]
     pub min_density: f64,
 
     #[clap(
         help_heading = group_plot!(),
-        short = 'm',
+        short = 'c',
         long,
         help = "Do not output image if #seed is less than this value",
-        name = "FLOAT",
+        value_name = "INT",
         default_value = "0"
     )]
     pub min_count: usize,
@@ -102,7 +102,7 @@ pub struct Args {
         short = 't',
         long,
         help = "Plot seeds only in the ranges in the file. Seeds outside the ranges are ignored. Accepts BED or \"chr7:6000000-6300000\" format.",
-        name = "FILE"
+        value_name = "FILE"
     )]
     pub target_range: Option<String>,
     #[clap(
@@ -110,7 +110,7 @@ pub struct Args {
         short = 'q',
         long,
         help = "Same as above for query",
-        name = "FILE"
+        value_name = "FILE"
     )]
     pub query_range: Option<String>,
 
@@ -119,7 +119,7 @@ pub struct Args {
         short = 'T',
         long,
         help = "Force treat the target range file in a specific format",
-        name = "FORMAT",
+        value_name = "FORMAT",
         default_value = "infer"
     )]
     pub target_range_format: RangeFormat,
@@ -129,21 +129,21 @@ pub struct Args {
         short = 'Q',
         long,
         help = "Same as above for query",
-        name = "FORMAT",
+        value_name = "FORMAT",
         default_value = "infer"
     )]
     pub query_range_format: RangeFormat,
 
-    #[clap(help_heading = group_range!(), long, help = "Regex to extract virtual name and start coordinate from its sequence name, for use in annotation coloring and plotting.", name = "REGEX")]
+    #[clap(help_heading = group_range!(), long, help = "Regex to extract virtual name and start coordinate from its sequence name, for use in annotation coloring and plotting.", value_name = "REGEX")]
     pub target_extractor: Option<String>,
 
-    #[clap(help_heading = group_range!(), long, help = "Same as above for query", name = "REGEX")]
+    #[clap(help_heading = group_range!(), long, help = "Same as above for query", value_name = "REGEX")]
     pub query_extractor: Option<String>,
 
-    #[clap(help_heading = group_range!(), long, help = "Annotation file for the target (in BED format)", name = "FILE")]
+    #[clap(help_heading = group_range!(), long, help = "Annotation file for the target (in BED format)", value_name = "FILE")]
     pub target_annotation: Option<String>,
 
-    #[clap(help_heading = group_range!(), long, help = "Same as above for query", name = "FILE")]
+    #[clap(help_heading = group_range!(), long, help = "Same as above for query", value_name = "FILE")]
     pub query_annotation: Option<String>,
 
     // #[clap(short = 'A', long, help = "Annotation color configuration in yaml")]
@@ -154,11 +154,11 @@ pub struct Args {
         long,
         help = "Output filename (prefix if split plot)",
         default_value = "out.png",
-        name = "FILE"
+        value_name = "FILE"
     )]
     pub output: String,
 
-    #[clap(help_heading = group_output!(), short = 'F', long, help = "Create directory if it doesn't exist")]
+    #[clap(help_heading = group_output!(), short = 'F', long, help = "Create directory if it doesn't exist", default_value = "false")]
     pub create_missing_dir: bool,
 
     #[clap(help_heading = group_output!(), short = 'p', long, help = "Create plot for each target/query pair", default_value = "false")]
@@ -182,13 +182,13 @@ pub struct Args {
     )]
     pub iterm2: bool,
 
-    #[clap(help_heading = group_output!(), short = 'W', long, help = "Width in characters when printing plot to terminal", name = "INT")]
+    #[clap(help_heading = group_output!(), short = 'W', long, help = "Width in characters when printing plot to terminal", value_name = "INT")]
     pub iterm2_width: Option<usize>,
 
-    #[clap(help_heading = group_output!(), short = 'H', long, help = "Height in characters when printing plot to terminal", name = "INT")]
+    #[clap(help_heading = group_output!(), short = 'H', long, help = "Height in characters when printing plot to terminal", value_name = "INT")]
     pub iterm2_height: Option<usize>,
 
-    #[clap(long, help = "Suppress logs")]
+    #[clap(long, help = "Suppress logs", default_value = "false")]
     pub quiet: bool,
 }
 
@@ -526,7 +526,7 @@ fn main() {
     let min_density = args.min_density.max(0.000001);
     let dot_color = DensityColorMap {
         palette: [RGBColor(255, 0, 64), RGBColor(0, 64, 255)],
-        max_density: args.density * args.density / min_density,
+        max_density: args.mid_density * args.mid_density / min_density,
         min_density,
     };
     let annot_color = AnnotationColorMap {
