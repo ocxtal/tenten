@@ -2,6 +2,7 @@ mod parser;
 
 use crate::parser::{SeedParser, SeedToken};
 use clap::Parser;
+use hex_color::HexColor;
 use plotters::prelude::*;
 use regex::Regex;
 use std::collections::HashMap;
@@ -146,8 +147,9 @@ pub struct Args {
     #[clap(help_heading = group_range!(), long, help = "Same as above for query", value_name = "FILE")]
     pub query_annotation: Option<String>,
 
-    // #[clap(short = 'A', long, help = "Annotation color configuration in yaml")]
-    // pub annotation_color: Option<String>,
+    #[clap(short = 'A', long, help = "Annotation color configuration")]
+    pub annotation_color: Option<String>,
+
     #[clap(
         help_heading = group_output!(),
         short = 'o',
@@ -290,6 +292,24 @@ impl LabelExtractor {
             log::debug!("sequence patched: {}:{}-{}", name, range.start, range.end);
         }
     }
+}
+
+fn load_annotation_palette(file: &str) -> HashMap<String, RGBColor> {
+    let file = std::io::BufReader::new(std::fs::File::open(file).unwrap());
+    let mut palette = HashMap::new();
+
+    for line in file.lines() {
+        let line = line.unwrap();
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+
+        let mut cols = line.split('\t');
+        let name = cols.next().unwrap();
+        let color = HexColor::parse(cols.next().unwrap()).unwrap();
+        palette.insert(name.to_string(), RGBColor(color.r, color.g, color.b));
+    }
+    palette
 }
 
 struct Context<'a> {
@@ -532,7 +552,11 @@ fn main() {
         min_density,
     };
     let annot_color = AnnotationColorMap {
-        palette: HashMap::new(),
+        palette: args
+            .annotation_color
+            .as_deref()
+            .map(load_annotation_palette)
+            .unwrap_or_else(|| HashMap::new()),
         default: RGBColor(0, 0, 0),
         alpha: 0.05,
         prefix_match: true,
