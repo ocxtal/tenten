@@ -102,12 +102,12 @@ pub struct Args {
         help_heading = group_range!(),
         short = 't',
         long,
-        help = "Plot seeds only in the ranges in the file. Seeds outside the ranges are ignored. Accepts BED or \"chr7:6000000-6300000\" format.",
+        help = "Plot seeds only in the ranges in the file. Seeds outside the ranges are ignored. Accepts BED or \"chr7:6000000-6300000\" format",
         value_name = "FILE"
     )]
     pub target_range: Option<String>,
 
-    #[clap(hide = true, value_name = "FILE", long, value_parser = clap::builder::UnknownArgumentValueParser::suggest_arg("--target-range"))]
+    #[clap(help_heading = group_range!(), hide = true, value_name = "FILE", long, value_parser = clap::builder::UnknownArgumentValueParser::suggest_arg("--target-range"))]
     pub reference_range: Option<String>,
 
     #[clap(
@@ -129,8 +129,8 @@ pub struct Args {
     )]
     pub target_range_format: RangeFormat,
 
-    #[clap(hide = true, value_name = "FORMAT", long, value_parser = clap::builder::UnknownArgumentValueParser::suggest_arg("--target-range-format"), default_value = "infer")]
-    pub reference_range_format: RangeFormat,
+    #[clap(help_heading = group_range!(), hide = true, value_name = "FORMAT", long, value_parser = clap::builder::UnknownArgumentValueParser::suggest_arg("--target-range-format"))]
+    pub reference_range_format: Option<String>,
 
     #[clap(
         help_heading = group_range!(),
@@ -142,10 +142,10 @@ pub struct Args {
     )]
     pub query_range_format: RangeFormat,
 
-    #[clap(help_heading = group_range!(), long, help = "Regex to extract virtual name and start coordinate from its sequence name, for use in annotation coloring and plotting.", value_name = "REGEX")]
+    #[clap(help_heading = group_range!(), long, help = "Regex to extract virtual name and start coordinate from its sequence name, for use in annotation coloring and plotting", value_name = "REGEX")]
     pub target_extractor: Option<String>,
 
-    #[clap(hide = true, value_name = "REGEX", long, value_parser = clap::builder::UnknownArgumentValueParser::suggest_arg("--target-extractor"))]
+    #[clap(help_heading = group_range!(), hide = true, value_name = "REGEX", long, value_parser = clap::builder::UnknownArgumentValueParser::suggest_arg("--target-extractor"))]
     pub reference_extractor: Option<String>,
 
     #[clap(help_heading = group_range!(), long, help = "Same as above for query", value_name = "REGEX")]
@@ -154,13 +154,13 @@ pub struct Args {
     #[clap(help_heading = group_range!(), long, help = "Annotation file for the target (in BED format)", value_name = "FILE")]
     pub target_annotation: Option<String>,
 
-    #[clap(hide = true, value_name = "FILE", long, value_parser = clap::builder::UnknownArgumentValueParser::suggest_arg("--target-annotation"))]
+    #[clap(help_heading = group_range!(), hide = true, value_name = "FILE", long, value_parser = clap::builder::UnknownArgumentValueParser::suggest_arg("--target-annotation"))]
     pub reference_annotation: Option<String>,
 
     #[clap(help_heading = group_range!(), long, help = "Same as above for query", value_name = "FILE")]
     pub query_annotation: Option<String>,
 
-    #[clap(help_heading = group_range!(), short = 'A', long, help = "Annotation color configuration")]
+    #[clap(help_heading = group_range!(), short = 'A', long, help = "Annotation color configuration", value_name = "FILE")]
     pub annotation_color: Option<String>,
 
     #[clap(

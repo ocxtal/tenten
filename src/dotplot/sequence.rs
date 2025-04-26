@@ -54,7 +54,11 @@ impl fmt::Display for SequenceRange {
 
 impl fmt::Debug for SequenceRange {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}:{}-{}", self.name, self.range.start, self.range.end)
+        write!(
+            f,
+            "{}:{}-{} ({:?}, {:?}, {:?})",
+            self.name, self.range.start, self.range.end, self.annotation, self.virtual_name, self.virtual_start
+        )
     }
 }
 
