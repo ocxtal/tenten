@@ -106,6 +106,10 @@ pub struct Args {
         value_name = "FILE"
     )]
     pub target_range: Option<String>,
+
+    #[clap(hide = true, value_name = "FILE", long, value_parser = clap::builder::UnknownArgumentValueParser::suggest_arg("--target-range"))]
+    pub reference_range: Option<String>,
+
     #[clap(
         help_heading = group_range!(),
         short = 'q',
@@ -125,6 +129,9 @@ pub struct Args {
     )]
     pub target_range_format: RangeFormat,
 
+    #[clap(hide = true, value_name = "FORMAT", long, value_parser = clap::builder::UnknownArgumentValueParser::suggest_arg("--target-range-format"), default_value = "infer")]
+    pub reference_range_format: RangeFormat,
+
     #[clap(
         help_heading = group_range!(),
         short = 'Q',
@@ -138,16 +145,22 @@ pub struct Args {
     #[clap(help_heading = group_range!(), long, help = "Regex to extract virtual name and start coordinate from its sequence name, for use in annotation coloring and plotting.", value_name = "REGEX")]
     pub target_extractor: Option<String>,
 
+    #[clap(hide = true, value_name = "REGEX", long, value_parser = clap::builder::UnknownArgumentValueParser::suggest_arg("--target-extractor"))]
+    pub reference_extractor: Option<String>,
+
     #[clap(help_heading = group_range!(), long, help = "Same as above for query", value_name = "REGEX")]
     pub query_extractor: Option<String>,
 
     #[clap(help_heading = group_range!(), long, help = "Annotation file for the target (in BED format)", value_name = "FILE")]
     pub target_annotation: Option<String>,
 
+    #[clap(hide = true, value_name = "FILE", long, value_parser = clap::builder::UnknownArgumentValueParser::suggest_arg("--target-annotation"))]
+    pub reference_annotation: Option<String>,
+
     #[clap(help_heading = group_range!(), long, help = "Same as above for query", value_name = "FILE")]
     pub query_annotation: Option<String>,
 
-    #[clap(short = 'A', long, help = "Annotation color configuration")]
+    #[clap(help_heading = group_range!(), short = 'A', long, help = "Annotation color configuration")]
     pub annotation_color: Option<String>,
 
     #[clap(
@@ -309,6 +322,7 @@ fn load_annotation_palette(file: &str) -> HashMap<String, RGBColor> {
         let color = HexColor::parse(cols.next().unwrap()).unwrap();
         palette.insert(name.to_string(), RGBColor(color.r, color.g, color.b));
     }
+    log::debug!("annotation palette loaded: {palette:?}");
     palette
 }
 
