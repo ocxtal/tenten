@@ -207,7 +207,7 @@ impl<'a> DotPlot<'a> {
             self.tot_size += plane.cnt.len();
             self.planes.push(plane);
         }
-        log::debug!("target added: {:?}, {:}", &r.name, self.tot_size);
+        log::debug!("target added: {:?}, memory: {} bytes", &r.name, self.tot_size);
     }
 
     pub fn add_query(&mut self, q: &SequenceRange) {
@@ -231,7 +231,7 @@ impl<'a> DotPlot<'a> {
             self.tot_size += plane.cnt.len();
             self.planes.push(plane);
         }
-        log::debug!("query added: {:?}, {:}", &q.name, self.tot_size);
+        log::debug!("query added: {:?}, memory: {} bytes", &q.name, self.tot_size);
     }
 
     pub fn add_annotation(&mut self, r: &[SequenceRange], q: &[SequenceRange], color_map: &AnnotationColorMap) {
