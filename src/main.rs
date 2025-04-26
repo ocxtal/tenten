@@ -59,6 +59,9 @@ pub struct Args {
     #[clap(help_heading = group_input!(), short = 'O', long, help = "Use stdout of seed generator, instead of stderr", default_value = "false")]
     pub use_stdout: bool,
 
+    #[clap(help_heading = group_input!(), short = 's', long, help = "Self dotplot. Target sequence is used as query sequence as well", default_value = "false")]
+    pub self_dotplot: bool,
+
     #[clap(help_heading = group_input!(), short = 'x', long, help = "Swap target and query for seed generator", default_value = "false")]
     pub swap_generator: bool,
 
@@ -546,7 +549,12 @@ fn main() {
     }
 
     // open input stream
-    let stream: Box<dyn Read> = if let Some(query) = &args.query {
+    let query = if args.self_dotplot {
+        Some(args.target.clone())
+    } else {
+        args.query.clone()
+    };
+    let stream: Box<dyn Read> = if let Some(query) = &query {
         let seed_generator = args.seed_generator.as_ref().unwrap();
         let inputs: [&str; 2] = if args.swap_generator {
             [query, &args.target]
