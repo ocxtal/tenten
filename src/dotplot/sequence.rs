@@ -68,8 +68,15 @@ fn load_sequence_range_fasta(file: &str) -> Result<Vec<SequenceRange>> {
 
     let mut v = Vec::new();
     let (mut name, mut len) = (None, 0);
-    for line in file.lines() {
+    for (i, line) in file.lines().enumerate() {
         let line = line?;
+        if i == 0 && !line.starts_with('>') {
+            if line.starts_with('@') {
+                return Err(anyhow!("looks not a fasta file (possibly a fastq?)"));
+            } else {
+                return Err(anyhow!("looks not a fasta file"));
+            }
+        }
         if line.starts_with('>') {
             if let Some(name) = std::mem::take(&mut name) {
                 v.push(SequenceRange {

@@ -6,7 +6,7 @@ use hex_color::HexColor;
 use plotters::prelude::*;
 use regex::Regex;
 use std::collections::HashMap;
-use std::io::{BufRead, Read};
+use std::io::{BufRead, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use tempfile::NamedTempFile;
@@ -329,6 +329,46 @@ fn load_annotation_palette(file: &str) -> HashMap<String, RGBColor> {
     palette
 }
 
+struct CachedFile<'a> {
+    pub original: &'a str,
+    pub cached: Option<NamedTempFile>,
+}
+
+impl<'a> CachedFile<'a> {
+    fn new(filename: &'a str) -> CachedFile<'a> {
+        let mut file = std::fs::File::open(filename).unwrap();
+        if file.seek(SeekFrom::Current(0)).is_ok() {
+            CachedFile {
+                original: filename,
+                cached: None,
+            }
+        } else {
+            let mut cached = NamedTempFile::new().unwrap();
+            std::io::copy(&mut file, &mut cached).unwrap();
+            cached.flush().unwrap();
+            CachedFile {
+                original: filename,
+                cached: Some(cached),
+            }
+        }
+    }
+
+    fn alias(&'a self) -> CachedFile<'a> {
+        CachedFile {
+            original: self.name(),
+            cached: None,
+        }
+    }
+
+    fn name(&'a self) -> &'a str {
+        if let Some(ref file) = self.cached {
+            file.path().to_str().unwrap()
+        } else {
+            &self.original
+        }
+    }
+}
+
 struct Context<'a> {
     basename: String,
     rseq: Vec<SequenceRange>,
@@ -345,12 +385,14 @@ struct Context<'a> {
 impl<'a> Context<'a> {
     fn new(
         args: &Args,
+        target: &str,
+        query: Option<&str>,
         dot_color: &'a DensityColorMap,
         annot_color: &'a AnnotationColorMap,
         appearance: &'a DotPlotAppearance<'a>,
     ) -> Self {
-        let (rseq, qseq) = if let Some(query) = &args.query {
-            let rseq = load_sequence_range(&args.target, RangeFormat::Fasta).unwrap();
+        let (rseq, qseq) = if let Some(query) = query {
+            let rseq = load_sequence_range(target, RangeFormat::Fasta).unwrap();
             let qseq = load_sequence_range(query, RangeFormat::Fasta).unwrap();
             (rseq, qseq)
         } else {
@@ -548,18 +590,19 @@ fn main() {
         }
     }
 
-    // open input stream
+    let target = CachedFile::new(&args.target);
     let query = if args.self_dotplot {
-        Some(args.target.clone())
+        Some(target.alias())
     } else {
-        args.query.clone()
+        args.query.as_deref().map(|x| CachedFile::new(x))
     };
+
     let stream: Box<dyn Read> = if let Some(query) = &query {
         let seed_generator = args.seed_generator.as_ref().unwrap();
         let inputs: [&str; 2] = if args.swap_generator {
-            [query, &args.target]
+            [query.name(), target.name()]
         } else {
-            [&args.target, query]
+            [target.name(), query.name()]
         };
         Box::new(SeedGeneratorCommand::new(seed_generator, inputs.as_slice(), args.use_stdout))
     } else {
@@ -610,7 +653,14 @@ fn main() {
         y_seq_name_setback: 35,
     };
     // parse the stream
-    let mut ctx = Context::new(&args, &dot_color, &annot_color, &appearance);
+    let mut ctx = Context::new(
+        &args,
+        target.name(),
+        query.as_ref().map(|x| x.name()),
+        &dot_color,
+        &annot_color,
+        &appearance,
+    );
     let parser = SeedParser::new(stream.lines(), args.swap_generator);
     for token in parser {
         ctx.process_token(token);
