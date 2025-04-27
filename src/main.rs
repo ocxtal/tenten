@@ -1,14 +1,17 @@
+mod command;
+mod file;
 mod parser;
 
+use crate::command::SeedGeneratorCommand;
+use crate::file::CachedFile;
 use crate::parser::{SeedParser, SeedToken};
 use clap::Parser;
 use hex_color::HexColor;
 use plotters::prelude::*;
 use regex::Regex;
 use std::collections::HashMap;
-use std::io::{BufRead, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, Read};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
 use tempfile::NamedTempFile;
 use tenten::*;
 
@@ -210,71 +213,6 @@ pub struct Args {
     pub quiet: bool,
 }
 
-struct SeedGeneratorCommand {
-    #[allow(dead_code)]
-    child: Child,
-    output: Box<dyn Read>,
-}
-
-impl SeedGeneratorCommand {
-    fn new(cmd: &str, inputs: &[&str], use_stdout: bool) -> SeedGeneratorCommand {
-        let mut cmd = cmd.to_string();
-        let mut consumed = vec![false; inputs.len()];
-        for i in 0..inputs.len() {
-            let pat = format!("{{{i}}}");
-            if cmd.contains(&pat) {
-                cmd = cmd.replacen(&pat, inputs[i], 1);
-                consumed[i] = true;
-            }
-        }
-        for i in 0..inputs.len() {
-            if consumed[i] {
-                continue;
-            }
-            if cmd.contains("{}") {
-                cmd = cmd.replacen("{}", inputs[i], 1);
-                consumed[i] = true;
-            }
-        }
-        for i in 0..inputs.len() {
-            if !consumed[i] {
-                cmd = format!("{0} {1}", cmd, inputs[i]);
-                consumed[i] = true;
-            }
-        }
-        assert!(consumed.iter().all(|&x| x));
-        log::info!("executing seed generator: {cmd}");
-
-        let cmd = cmd.split(" ").collect::<Vec<_>>();
-        let (child, output) = if use_stdout {
-            let mut child = Command::new(cmd[0])
-                .args(&cmd[1..])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn()
-                .unwrap();
-            let output: Box<dyn Read> = Box::new(child.stdout.take().unwrap());
-            (child, output)
-        } else {
-            let mut child = Command::new(cmd[0])
-                .args(&cmd[1..])
-                .stdout(Stdio::null())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap();
-            let output: Box<dyn Read> = Box::new(child.stderr.take().unwrap());
-            (child, output)
-        };
-        SeedGeneratorCommand { child, output }
-    }
-}
-
-impl Read for SeedGeneratorCommand {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.output.read(buf)
-    }
-}
-
 struct LabelExtractor {
     re: Regex,
 }
@@ -327,46 +265,6 @@ fn load_annotation_palette(file: &str) -> HashMap<String, RGBColor> {
     }
     log::debug!("annotation palette loaded: {palette:?}");
     palette
-}
-
-struct CachedFile<'a> {
-    pub original: &'a str,
-    pub cached: Option<NamedTempFile>,
-}
-
-impl<'a> CachedFile<'a> {
-    fn new(filename: &'a str) -> CachedFile<'a> {
-        let mut file = std::fs::File::open(filename).unwrap();
-        if file.seek(SeekFrom::Current(0)).is_ok() {
-            CachedFile {
-                original: filename,
-                cached: None,
-            }
-        } else {
-            let mut cached = NamedTempFile::new().unwrap();
-            std::io::copy(&mut file, &mut cached).unwrap();
-            cached.flush().unwrap();
-            CachedFile {
-                original: filename,
-                cached: Some(cached),
-            }
-        }
-    }
-
-    fn alias(&'a self) -> CachedFile<'a> {
-        CachedFile {
-            original: self.name(),
-            cached: None,
-        }
-    }
-
-    fn name(&'a self) -> &'a str {
-        if let Some(ref file) = self.cached {
-            file.path().to_str().unwrap()
-        } else {
-            &self.original
-        }
-    }
 }
 
 struct Context<'a> {
