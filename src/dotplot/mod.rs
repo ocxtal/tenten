@@ -42,7 +42,7 @@ pub fn plot(name: &str, dotplot: &DotPlot) -> Result<()> {
                     height: 30,
                 },
                 LayoutElem::Margined {
-                    margin: LayoutMargin::new(0, 30, 10, 10),
+                    margin: LayoutMargin::new(0, 50, 10, 10),
                     center: Box::new(LayoutElem::Rect {
                         id: Some("length_scale".to_string()),
                         width: length_scale.get_dim().0,
@@ -50,7 +50,7 @@ pub fn plot(name: &str, dotplot: &DotPlot) -> Result<()> {
                     }),
                 },
                 LayoutElem::Margined {
-                    margin: LayoutMargin::new(0, 30, 10, 10),
+                    margin: LayoutMargin::new(0, 50, 10, 10),
                     center: Box::new(LayoutElem::Rect {
                         id: Some("color_scale".to_string()),
                         width: color_scale.get_dim().0,
