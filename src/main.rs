@@ -8,6 +8,7 @@ use crate::parser::{SeedParser, SeedToken};
 use clap::Parser;
 use hex_color::HexColor;
 use plotters::prelude::*;
+use plotters::style::text_anchor::{HPos, Pos, VPos};
 use regex::Regex;
 use std::collections::HashMap;
 use std::io::{BufRead, Read};
@@ -540,15 +541,17 @@ fn main() {
         spacer_thickness: 1,
         desired_tick_pitch: 25,
 
-        x_label_area_size: 35,
+        x_label_area_size: 235,
         x_axis_appearance: axis_appearance.clone(),
-        x_seq_name_style: text_style.clone(),
+        x_seq_name_style: text_style
+            .pos(Pos::new(HPos::Right, VPos::Center))
+            .transform(FontTransform::Rotate270),
         x_seq_name_setback: 20,
 
-        y_label_area_size: 50,
+        y_label_area_size: 250,
         y_axis_appearance: axis_appearance.clone(),
-        y_seq_name_style: text_style.clone(),
-        y_seq_name_setback: 35,
+        y_seq_name_style: text_style.pos(Pos::new(HPos::Right, VPos::Center)),
+        y_seq_name_setback: 50,
     };
     // parse the stream
     let mut ctx = Context::new(

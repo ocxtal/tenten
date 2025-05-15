@@ -11,7 +11,6 @@ use crate::dotplot::sequence::SequenceRange;
 use anyhow::Result;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;
-use plotters::style::text_anchor::{HPos, Pos, VPos};
 use plotters_backend::{BackendStyle, DrawingErrorKind};
 use std::collections::{HashMap, HashSet};
 
@@ -380,10 +379,9 @@ impl<'a> DotPlot<'a> {
             tick.draw(std::iter::once(pos), backend, (0, 0))?;
         }
 
-        let style = &self.app.x_seq_name_style.pos(Pos::new(HPos::Center, VPos::Top));
         let range = layout.get_range("seq_names").unwrap();
         let (x, y) = range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft);
-        backend.draw_text(seq.virtual_name(), style, shift((x + width as i32 / 2, y)))?;
+        backend.draw_text(seq.virtual_name(), &self.app.x_seq_name_style, shift((x + width as i32 / 2, y)))?;
         Ok(())
     }
 
@@ -449,14 +447,9 @@ impl<'a> DotPlot<'a> {
             tick.draw(std::iter::once(pos), backend, (0, 0))?;
         }
 
-        let style = &self
-            .app
-            .y_seq_name_style
-            .pos(Pos::new(HPos::Center, VPos::Bottom))
-            .transform(FontTransform::Rotate270);
         let range = layout.get_range("seq_names").unwrap();
         let (x, y) = range.get_relative_pos(RectAnchor::BottomRight, RectAnchor::BottomRight);
-        backend.draw_text(seq.virtual_name(), style, shift((x, y - height as i32 / 2)))?;
+        backend.draw_text(seq.virtual_name(), &self.app.y_seq_name_style, shift((x, y - height as i32 / 2)))?;
         Ok(())
     }
 
