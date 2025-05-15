@@ -493,7 +493,7 @@ fn main() {
     let query = if args.self_dotplot {
         Some(target.alias())
     } else {
-        args.query.as_deref().map(|x| CachedFile::new(x))
+        args.query.as_deref().map(CachedFile::new)
     };
 
     let stream: Box<dyn Read> = if let Some(query) = &query {
@@ -520,7 +520,7 @@ fn main() {
             .annotation_color
             .as_deref()
             .map(load_annotation_palette)
-            .unwrap_or_else(|| HashMap::new()),
+            .unwrap_or_else(HashMap::new),
         default: RGBColor(0, 0, 0),
         alpha: 0.05,
         prefix_match: true,
