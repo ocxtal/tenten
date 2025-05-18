@@ -98,6 +98,10 @@ where
     where
         I: Iterator<Item = (i32, i32)>,
     {
+        if self.width == 0 || self.height == 0 {
+            return Ok(());
+        }
+
         let mut pos = pos;
         let pos = pos.next().unwrap();
 
