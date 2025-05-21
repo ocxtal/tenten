@@ -128,11 +128,7 @@ impl<'a> Tick<'a> {
         label: String,
         show_label: bool,
     ) -> Tick<'a> {
-        let pos = if is_end.0 {
-            pos - 1
-        } else {
-            pos
-        };
+        let pos = if is_end.0 { pos - 1 } else { pos };
         let pos = match axis_direction {
             Direction::Up => (root.0, root.1 - pos - 1),
             Direction::Down => (root.0, root.1 + pos),
