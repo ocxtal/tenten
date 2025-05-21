@@ -38,7 +38,7 @@ impl SequenceRange {
 
     pub fn virtual_range(&self) -> Range<isize> {
         let start = if let Some(start) = self.virtual_start {
-            start
+            self.range.start as isize + start
         } else {
             self.range.start as isize
         };

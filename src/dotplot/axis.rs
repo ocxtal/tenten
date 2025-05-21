@@ -82,7 +82,7 @@ impl<'a> Tick<'a> {
         let build = |i: isize, is_large: bool, show_label: bool| {
             Self::build(
                 root,
-                ((i - range.start) as f64 * base_to_pixel) as i32,
+                ((i - range.start) as f64 * base_to_pixel).ceil() as i32,
                 tick_direction,
                 axis_direction,
                 (i == range.start, i == range.end),
@@ -130,8 +130,6 @@ impl<'a> Tick<'a> {
     ) -> Tick<'a> {
         let pos = if is_end.0 {
             pos - 1
-        } else if is_end.1 {
-            pos + 1
         } else {
             pos
         };
