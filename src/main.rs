@@ -105,6 +105,9 @@ pub struct Args {
     #[clap(help_heading = group_plot!(), short = 'X', long, help = "Swap x/y axes of the output plots", default_value = "false")]
     pub swap_plot_axes: bool,
 
+    #[clap(help_heading = group_plot!(), long, help = "Hide scale bars", default_value = "false")]
+    pub hide_scale: bool,
+
     #[clap(
         help_heading = group_range!(),
         short = 't',
@@ -377,12 +380,12 @@ impl<'a> Context<'a> {
         } else {
             format!("{}.png", &self.basename)
         };
-        plot(&name, dotplot).unwrap();
+        plot(&name, dotplot, self.args.hide_scale).unwrap();
     }
 
     fn plot_iterm2(&self, dotplot: &DotPlot) {
         let mut file = NamedTempFile::with_suffix(".png").unwrap();
-        plot(file.path().to_str().unwrap(), dotplot).unwrap();
+        plot(file.path().to_str().unwrap(), dotplot, self.args.hide_scale).unwrap();
 
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();

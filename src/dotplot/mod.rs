@@ -23,7 +23,7 @@ pub enum Direction {
     Right,
 }
 
-pub fn plot(name: &str, dotplot: &DotPlot) -> Result<()> {
+pub fn plot(name: &str, dotplot: &DotPlot, hide_scale: bool) -> Result<()> {
     let appearance = dotplot.appearance();
     let scale_appearance = AxisAppearance {
         fit_in_box: false,
@@ -32,38 +32,41 @@ pub fn plot(name: &str, dotplot: &DotPlot) -> Result<()> {
     let length_scale = LengthScale::new(dotplot.base_per_pixel(), appearance.desired_tick_pitch as usize, &scale_appearance);
     let color_scale = ColorScale::new(dotplot.color_map(), 200, &scale_appearance);
 
+    let mut center = Vec::new();
+    if !hide_scale {
+        center.push(LayoutElem::Horizontal(vec![
+            LayoutElem::Rect {
+                id: None,
+                width: 50,
+                height: 30,
+            },
+            LayoutElem::Margined {
+                margin: LayoutMargin::new(0, 50, 10, 10),
+                center: Box::new(LayoutElem::Rect {
+                    id: Some("length_scale".to_string()),
+                    width: length_scale.get_dim().0,
+                    height: length_scale.get_dim().1,
+                }),
+            },
+            LayoutElem::Margined {
+                margin: LayoutMargin::new(0, 50, 10, 10),
+                center: Box::new(LayoutElem::Rect {
+                    id: Some("color_scale".to_string()),
+                    width: color_scale.get_dim().0,
+                    height: color_scale.get_dim().1,
+                }),
+            },
+        ]));
+    }
+    center.push(LayoutElem::Rect {
+        id: Some("dotplot".to_string()),
+        width: dotplot.get_dim().0,
+        height: dotplot.get_dim().1,
+    });
+
     let layout = Layout(LayoutElem::Margined {
         margin: LayoutMargin::uniform(20),
-        center: Box::new(LayoutElem::Vertical(vec![
-            LayoutElem::Horizontal(vec![
-                LayoutElem::Rect {
-                    id: None,
-                    width: 50,
-                    height: 30,
-                },
-                LayoutElem::Margined {
-                    margin: LayoutMargin::new(0, 50, 10, 10),
-                    center: Box::new(LayoutElem::Rect {
-                        id: Some("length_scale".to_string()),
-                        width: length_scale.get_dim().0,
-                        height: length_scale.get_dim().1,
-                    }),
-                },
-                LayoutElem::Margined {
-                    margin: LayoutMargin::new(0, 50, 10, 10),
-                    center: Box::new(LayoutElem::Rect {
-                        id: Some("color_scale".to_string()),
-                        width: color_scale.get_dim().0,
-                        height: color_scale.get_dim().1,
-                    }),
-                },
-            ]),
-            LayoutElem::Rect {
-                id: Some("dotplot".to_string()),
-                width: dotplot.get_dim().0,
-                height: dotplot.get_dim().1,
-            },
-        ])),
+        center: Box::new(LayoutElem::Vertical(center)),
     });
     let areas = StructuredDrawingArea::from_layout(&layout, name)?;
 
