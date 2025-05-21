@@ -525,7 +525,7 @@ fn main() {
             .map(load_annotation_palette)
             .unwrap_or_else(HashMap::new),
         default: RGBColor(0, 0, 0),
-        alpha: 0.05,
+        alpha: 0.15,
         prefix_match: true,
         exact_match: false,
     };

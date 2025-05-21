@@ -39,7 +39,7 @@ impl Axis {
         } else {
             (5, 10u64.pow(c as u32 + 1) / 2)
         };
-        let subunit = 10u32.pow(pitch_in_bases.ilog10() / 3 * 3);
+        let subunit = 10u32.pow((label_period as u64 * pitch_in_bases).ilog10() / 3 * 3);
         Axis {
             base_per_pixel,
             label_period,
