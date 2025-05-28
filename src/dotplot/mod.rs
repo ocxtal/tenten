@@ -10,6 +10,7 @@ pub use axis::{AxisAppearance, LengthScale};
 pub use color::{AnnotationColorMap, ColorScale, DensityColorMap};
 pub use plane::DotPlane;
 pub use plot::{DotPlot, DotPlotAppearance};
+use plotters::prelude::*;
 pub use plotters::prelude::{RGBColor, TextStyle};
 pub use sequence::{RangeFormat, SequenceRange, load_sequence_range};
 
@@ -34,13 +35,11 @@ pub fn plot(name: &str, dotplot: &DotPlot, hide_scale: bool) -> Result<()> {
 
     let mut center = Vec::new();
     if hide_scale {
-        center.push(LayoutElem::Horizontal(vec![
-            LayoutElem::Rect {
-                id: None,
-                width: 50,
-                height: 50,
-            },
-        ]));
+        center.push(LayoutElem::Horizontal(vec![LayoutElem::Rect {
+            id: None,
+            width: 50,
+            height: 50,
+        }]));
     } else {
         center.push(LayoutElem::Horizontal(vec![
             LayoutElem::Rect {
@@ -49,7 +48,7 @@ pub fn plot(name: &str, dotplot: &DotPlot, hide_scale: bool) -> Result<()> {
                 height: 50,
             },
             LayoutElem::Margined {
-                margin: LayoutMargin::new(0, 50, 10, 10),
+                margin: LayoutMargin::new(0, 100, 10, 10),
                 center: Box::new(LayoutElem::Rect {
                     id: Some("length_scale".to_string()),
                     width: length_scale.get_dim().0,
@@ -57,7 +56,7 @@ pub fn plot(name: &str, dotplot: &DotPlot, hide_scale: bool) -> Result<()> {
                 }),
             },
             LayoutElem::Margined {
-                margin: LayoutMargin::new(0, 50, 10, 10),
+                margin: LayoutMargin::new(0, 30, 10, 10),
                 center: Box::new(LayoutElem::Rect {
                     id: Some("color_scale".to_string()),
                     width: color_scale.get_dim().0,
@@ -76,17 +75,35 @@ pub fn plot(name: &str, dotplot: &DotPlot, hide_scale: bool) -> Result<()> {
         margin: LayoutMargin::uniform(20),
         center: Box::new(LayoutElem::Vertical(center)),
     });
-    let areas = StructuredDrawingArea::from_layout(&layout, name)?;
 
-    if let Some(area) = areas.get_area("dotplot") {
-        area.draw(dotplot)?;
+    if name.ends_with(".png") {
+        let backend = BitMapBackend::new(name, layout.0.get_dim());
+        let areas = StructuredDrawingArea::from_backend_and_layout(backend, &layout)?;
+
+        if let Some(area) = areas.get_area("dotplot") {
+            area.draw(dotplot)?;
+        }
+        if let Some(area) = areas.get_area("length_scale") {
+            area.draw(&length_scale)?;
+        }
+        if let Some(area) = areas.get_area("color_scale") {
+            area.draw(&color_scale)?;
+        }
+        areas.present()?;
+    } else {
+        let backend = SVGBackend::new(name, layout.0.get_dim());
+        let areas = StructuredDrawingArea::from_backend_and_layout(backend, &layout)?;
+
+        if let Some(area) = areas.get_area("dotplot") {
+            area.draw(dotplot)?;
+        }
+        if let Some(area) = areas.get_area("length_scale") {
+            area.draw(&length_scale)?;
+        }
+        if let Some(area) = areas.get_area("color_scale") {
+            area.draw(&color_scale)?;
+        }
+        areas.present()?;
     }
-    if let Some(area) = areas.get_area("length_scale") {
-        area.draw(&length_scale)?;
-    }
-    if let Some(area) = areas.get_area("color_scale") {
-        area.draw(&color_scale)?;
-    }
-    areas.present()?;
     Ok(())
 }

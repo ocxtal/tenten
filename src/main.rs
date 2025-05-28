@@ -94,7 +94,7 @@ pub struct Args {
         help_heading = group_plot!(),
         short = 'm',
         long,
-        help = "Do not output image if seed density is less than this value",
+        help = "Density of seeds (#per 1kbp square) that corresponds to 0% heatmap scale",
         value_name = "FLOAT",
         default_value = "0.1"
     )]
@@ -283,6 +283,7 @@ fn load_annotation_palette(file: &str) -> HashMap<String, RGBColor> {
 }
 
 struct Context<'a> {
+    suffix: String,
     basename: String,
     rseq: Vec<SequenceRange>,
     qseq: Vec<SequenceRange>,
@@ -341,10 +342,12 @@ impl<'a> Context<'a> {
         log::debug!("target ranges: {rseq:?}");
         log::debug!("query ranges: {qseq:?}");
 
-        let basename = if let Some(basename) = args.output.strip_suffix(".png") {
-            basename.to_string()
+        let (suffix, basename) = if let Some(basename) = args.output.strip_suffix(".png") {
+            ("png".to_string(), basename.to_string())
+        } else if let Some(basename) = args.output.strip_suffix(".svg") {
+            ("svg".to_string(), basename.to_string())
         } else {
-            args.output.clone()
+            ("png".to_string(), args.output.clone())
         };
 
         let rannot = if let Some(target_annotation) = &args.target_annotation {
@@ -363,6 +366,7 @@ impl<'a> Context<'a> {
         let mut dotplot = DotPlot::new(&rseq, &qseq, args.base_per_pixel, dot_color, appearance);
         dotplot.add_annotation(&rannot, &qannot, annot_color);
         Context {
+            suffix,
             basename,
             rseq,
             qseq,
@@ -380,19 +384,20 @@ impl<'a> Context<'a> {
         // format name
         let name = if self.args.split_plot {
             format!(
-                "{}.{}.{}.png",
+                "{}.{}.{}.{}",
                 &self.basename,
                 dotplot.targets()[0].to_path_string(),
-                dotplot.queries()[0].to_path_string()
+                dotplot.queries()[0].to_path_string(),
+                &self.suffix
             )
         } else {
-            format!("{}.png", &self.basename)
+            format!("{}.{}", &self.basename, &self.suffix)
         };
         plot(&name, dotplot, self.args.hide_scale).unwrap();
     }
 
     fn plot_iterm2(&self, dotplot: &DotPlot) {
-        let mut file = NamedTempFile::with_suffix(".png").unwrap();
+        let mut file = NamedTempFile::with_suffix(&self.suffix).unwrap();
         plot(file.path().to_str().unwrap(), dotplot, self.args.hide_scale).unwrap();
 
         let mut buf = Vec::new();
@@ -435,11 +440,7 @@ impl<'a> Context<'a> {
             dotplot
         };
         let dotplot = std::mem::replace(&mut self.dotplot, new_dotplot());
-        let dotplot = if self.args.swap_plot_axes {
-            dotplot.swap_axes()
-        } else {
-            dotplot
-        };
+        let dotplot = if self.args.swap_plot_axes { dotplot.swap_axes() } else { dotplot };
 
         if self.args.split_plot {
             for dotplot in dotplot.split() {

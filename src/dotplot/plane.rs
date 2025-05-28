@@ -67,7 +67,7 @@ impl DotPlane {
         let mut cnt = vec![[0, 0]; self.height * self.width];
         transpose::transpose(&self.cnt, &mut cnt, self.width, self.height);
 
-        let pair_id = self.pair_id>>32 | self.pair_id<<32;
+        let pair_id = self.pair_id >> 32 | self.pair_id << 32;
         DotPlane {
             cnt,
             rrange: self.qrange.clone(),
@@ -97,7 +97,7 @@ impl DotPlane {
         let qpos = if is_rev {
             (self.qrange.end - qpos) / self.base_per_pixel
         } else {
-            (qpos - self.qrange.start - 1) / self.base_per_pixel
+            (qpos - self.qrange.start) / self.base_per_pixel
         };
         debug_assert!(rpos < self.width && qpos < self.height);
 

@@ -373,12 +373,18 @@ impl DerefMut for Layout {
     }
 }
 
-pub struct StructuredDrawingArea<'a> {
-    areas: Vec<DrawingArea<BitMapBackend<'a>, Shift>>,
+pub struct StructuredDrawingArea<T>
+where
+    T: DrawingBackend + IntoDrawingArea,
+{
+    areas: Vec<DrawingArea<T, Shift>>,
     index: HashMap<String, usize>,
 }
 
-impl<'a> StructuredDrawingArea<'a> {
+impl<T> StructuredDrawingArea<T>
+where
+    T: DrawingBackend + IntoDrawingArea,
+{
     const MARGIN_TAGS: [&'static str; 9] = [
         "top-left",
         "top",
@@ -391,7 +397,7 @@ impl<'a> StructuredDrawingArea<'a> {
         "bottom-right",
     ];
 
-    fn append_elem(&mut self, path: &str, area: &DrawingArea<BitMapBackend<'a>, Shift>, layout: Option<&LayoutElem>) -> Result<()> {
+    fn append_elem(&mut self, path: &str, area: &DrawingArea<T, Shift>, layout: Option<&LayoutElem>) -> Result<()> {
         if self.index.contains_key(path) {
             return Err(anyhow!("duplicate path: {path}"));
         }
@@ -427,18 +433,21 @@ impl<'a> StructuredDrawingArea<'a> {
         Ok(())
     }
 
-    pub fn from_layout(layout: &Layout, name: &'a str) -> Result<StructuredDrawingArea<'a>> {
+    pub fn from_backend_and_layout(backend: T, layout: &Layout) -> Result<StructuredDrawingArea<T>>
+    where
+        <T as plotters_backend::DrawingBackend>::ErrorType: 'static,
+    {
         let mut s = StructuredDrawingArea {
             areas: Vec::new(),
             index: HashMap::new(),
         };
-        let root_area = BitMapBackend::new(name, layout.0.get_dim()).into_drawing_area();
-        root_area.fill(&WHITE)?;
+        let root_area = backend.into_drawing_area();
+        // root_area.fill(&WHITE)?;
         s.append_elem("", &root_area, Some(&layout.0))?;
         Ok(s)
     }
 
-    pub fn get_area(&self, key: &str) -> Option<&DrawingArea<BitMapBackend<'a>, Shift>> {
+    pub fn get_area(&self, key: &str) -> Option<&DrawingArea<T, Shift>> {
         if let Some(&i) = self.index.get(key) {
             Some(&self.areas[i])
         } else {
@@ -446,7 +455,10 @@ impl<'a> StructuredDrawingArea<'a> {
         }
     }
 
-    pub fn present(&self) -> Result<()> {
+    pub fn present(&self) -> Result<()>
+    where
+        <T as plotters_backend::DrawingBackend>::ErrorType: 'static,
+    {
         self.areas[0].present()?;
         Ok(())
     }

@@ -159,12 +159,16 @@ impl<'a> DotPlot<'a> {
     }
 
     pub fn swap_axes(&self) -> DotPlot<'a> {
-        let pair_to_plane = self.pair_to_plane.iter().map(|(&k, &v)| {
-            let rid = k >> 32;
-            let qid = k & 0xFFFFFFFF;
-            let new_key = (qid << 32) | rid;
-            (new_key, v)
-        }).collect::<HashMap<_, _>>();
+        let pair_to_plane = self
+            .pair_to_plane
+            .iter()
+            .map(|(&k, &v)| {
+                let rid = k >> 32;
+                let qid = k & 0xFFFFFFFF;
+                let new_key = (qid << 32) | rid;
+                (new_key, v)
+            })
+            .collect::<HashMap<_, _>>();
 
         DotPlot {
             rseq: self.qseq.clone(),
@@ -326,7 +330,7 @@ impl<'a> DotPlot<'a> {
             center: Box::new(LayoutElem::new_rect(plane.width as u32, plane.height as u32)),
         });
 
-        let spacer_color = RGBColor(192, 208, 192).color();
+        let spacer_color = RGBColor(128, 144, 128).color();
         for area in &[".top", ".top-right", ".right"] {
             let range = layout.get_range(area).unwrap();
             backend.draw_rect(

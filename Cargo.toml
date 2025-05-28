@@ -11,7 +11,7 @@ hex_color = "3"
 indoc = "2"
 iterm2img = "0.1"
 log = "0.4"
-plotters = "0.3"
+plotters = { version = "0.3", features = ["bitmap_backend", "svg_backend"] }
 plotters-backend = "0.3"
 rand = "0.9"
 regex = "1.11"
