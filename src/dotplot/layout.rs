@@ -442,7 +442,7 @@ where
             index: HashMap::new(),
         };
         let root_area = backend.into_drawing_area();
-        // root_area.fill(&WHITE)?;
+        root_area.fill(&RGBAColor(255, 255, 255, 1.0))?;
         s.append_elem("", &root_area, Some(&layout.0))?;
         Ok(s)
     }
