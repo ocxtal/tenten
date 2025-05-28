@@ -158,6 +158,30 @@ impl<'a> DotPlot<'a> {
         v
     }
 
+    pub fn swap_axes(&self) -> DotPlot<'a> {
+        let pair_to_plane = self.pair_to_plane.iter().map(|(&k, &v)| {
+            let rid = k >> 32;
+            let qid = k & 0xFFFFFFFF;
+            let new_key = (qid << 32) | rid;
+            (new_key, v)
+        }).collect::<HashMap<_, _>>();
+
+        DotPlot {
+            rseq: self.qseq.clone(),
+            qseq: self.rseq.clone(),
+            rdedup: self.qdedup.clone(),
+            qdedup: self.rdedup.clone(),
+            rmap: self.qmap.clone(),
+            qmap: self.rmap.clone(),
+            planes: self.planes.iter().map(|p| p.swap_axes()).collect(),
+            pair_to_plane,
+            base_per_pixel: self.base_per_pixel,
+            color_map: self.color_map,
+            app: self.app,
+            tot_size: 0,
+        }
+    }
+
     pub fn has_plane(&self) -> bool {
         !self.rseq.is_empty() && !self.qseq.is_empty()
     }

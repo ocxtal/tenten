@@ -26,6 +26,16 @@ struct DotPlaneAnnotation {
     picker: AnnotationColorPicker,
 }
 
+impl DotPlaneAnnotation {
+    fn swap_axes(&self) -> DotPlaneAnnotation {
+        DotPlaneAnnotation {
+            rannot: self.qannot.clone(),
+            qannot: self.rannot.clone(),
+            picker: self.picker.clone(),
+        }
+    }
+}
+
 impl DotPlane {
     pub fn new(r: &SequenceRange, q: &SequenceRange, base_per_pixel: usize, color_map: &DensityColorMap) -> DotPlane {
         Self::with_pair_id(r, q, base_per_pixel, color_map, 0)
@@ -49,6 +59,24 @@ impl DotPlane {
             base_per_pixel,
             picker: color_map.to_picker(base_per_pixel as f64),
             annot: None,
+            pair_id,
+        }
+    }
+
+    pub fn swap_axes(&self) -> DotPlane {
+        let mut cnt = vec![[0, 0]; self.height * self.width];
+        transpose::transpose(&self.cnt, &mut cnt, self.width, self.height);
+
+        let pair_id = self.pair_id>>32 | self.pair_id<<32;
+        DotPlane {
+            cnt,
+            rrange: self.qrange.clone(),
+            qrange: self.rrange.clone(),
+            width: self.height,
+            height: self.width,
+            base_per_pixel: self.base_per_pixel,
+            picker: self.picker.clone(),
+            annot: self.annot.as_ref().map(|x| x.swap_axes()),
             pair_id,
         }
     }

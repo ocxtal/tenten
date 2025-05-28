@@ -33,12 +33,20 @@ pub fn plot(name: &str, dotplot: &DotPlot, hide_scale: bool) -> Result<()> {
     let color_scale = ColorScale::new(dotplot.color_map(), 200, &scale_appearance);
 
     let mut center = Vec::new();
-    if !hide_scale {
+    if hide_scale {
         center.push(LayoutElem::Horizontal(vec![
             LayoutElem::Rect {
                 id: None,
                 width: 50,
-                height: 30,
+                height: 50,
+            },
+        ]));
+    } else {
+        center.push(LayoutElem::Horizontal(vec![
+            LayoutElem::Rect {
+                id: None,
+                width: 50,
+                height: 50,
             },
             LayoutElem::Margined {
                 margin: LayoutMargin::new(0, 50, 10, 10),

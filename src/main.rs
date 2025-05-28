@@ -60,6 +60,14 @@ pub struct Args {
     )]
     pub seed_generator: Option<String>,
 
+    #[clap(
+        help_heading = group_input!(),
+        long,
+        help = "Secondary seed generator command template for lower triangle (implies -s)",
+        value_name = "COMMAND TEMPLATE"
+    )]
+    pub secondary_seed_generator: Option<String>,
+
     #[clap(help_heading = group_input!(), short = 'O', long, help = "Use stdout of seed generator, instead of stderr", default_value = "false")]
     pub use_stdout: bool,
 
@@ -427,6 +435,12 @@ impl<'a> Context<'a> {
             dotplot
         };
         let dotplot = std::mem::replace(&mut self.dotplot, new_dotplot());
+        let dotplot = if self.args.swap_plot_axes {
+            dotplot.swap_axes()
+        } else {
+            dotplot
+        };
+
         if self.args.split_plot {
             for dotplot in dotplot.split() {
                 self.plot(&dotplot);
