@@ -343,11 +343,11 @@ impl<'a> Context<'a> {
         log::debug!("query ranges: {qseq:?}");
 
         let (suffix, basename) = if let Some(basename) = args.output.strip_suffix(".png") {
-            ("png".to_string(), basename.to_string())
+            (".png".to_string(), basename.to_string())
         } else if let Some(basename) = args.output.strip_suffix(".svg") {
-            ("svg".to_string(), basename.to_string())
+            (".svg".to_string(), basename.to_string())
         } else {
-            ("png".to_string(), args.output.clone())
+            (".png".to_string(), args.output.clone())
         };
 
         let rannot = if let Some(target_annotation) = &args.target_annotation {
@@ -384,14 +384,14 @@ impl<'a> Context<'a> {
         // format name
         let name = if self.args.split_plot {
             format!(
-                "{}.{}.{}.{}",
+                "{}.{}.{}{}",
                 &self.basename,
                 dotplot.targets()[0].to_path_string(),
                 dotplot.queries()[0].to_path_string(),
                 &self.suffix
             )
         } else {
-            format!("{}.{}", &self.basename, &self.suffix)
+            format!("{}{}", &self.basename, &self.suffix)
         };
         plot(&name, dotplot, self.args.hide_scale).unwrap();
     }
