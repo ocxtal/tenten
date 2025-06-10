@@ -5,7 +5,7 @@ mod parser;
 use crate::command::SeedGeneratorCommand;
 use crate::file::CachedFile;
 use crate::parser::{SeedParser, SeedToken};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use hex_color::HexColor;
 use plotters::prelude::*;
 use plotters::style::text_anchor::{HPos, Pos, VPos};
@@ -35,6 +35,14 @@ macro_rules! group_output {
     () => {
         "Output options"
     };
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum OrthogonalNameLabel {
+    None,
+    Target,
+    Query,
+    Both,
 }
 
 #[derive(Clone, Debug, Parser)]
@@ -182,7 +190,7 @@ pub struct Args {
     pub annotation_color: Option<String>,
 
     #[clap(help_heading = group_range!(), long, help = "Place sequence name labels orthogonal to the axes")]
-    pub orthogonal_name_label: bool,
+    pub orthogonal_name_label: OrthogonalNameLabel,
 
     #[clap(
         help_heading = group_output!(),
@@ -558,43 +566,38 @@ fn main() {
         label_style: text_style.clone(),
         fit_in_box: true,
     };
-    let appearance = if args.orthogonal_name_label {
-        DotPlotAppearance {
-            spacer_thickness: 1,
-            desired_tick_pitch: 25,
+    let mut appearance = DotPlotAppearance {
+        spacer_thickness: 1,
+        desired_tick_pitch: 25,
 
-            x_label_area_size: 235,
-            x_axis_appearance: axis_appearance.clone(),
-            x_seq_name_style: text_style
-                .clone()
-                .pos(Pos::new(HPos::Right, VPos::Center))
-                .transform(FontTransform::Rotate270),
-            x_seq_name_setback: 20,
+        x_label_area_size: 50,
+        x_axis_appearance: axis_appearance.clone(),
+        x_seq_name_style: text_style.clone().pos(Pos::new(HPos::Center, VPos::Top)),
+        x_seq_name_setback: 30,
 
-            y_label_area_size: 250,
-            y_axis_appearance: axis_appearance.clone(),
-            y_seq_name_style: text_style.clone().pos(Pos::new(HPos::Right, VPos::Center)),
-            y_seq_name_setback: 50,
-        }
-    } else {
-        DotPlotAppearance {
-            spacer_thickness: 1,
-            desired_tick_pitch: 25,
-
-            x_label_area_size: 50,
-            x_axis_appearance: axis_appearance.clone(),
-            x_seq_name_style: text_style.clone().pos(Pos::new(HPos::Center, VPos::Top)),
-            x_seq_name_setback: 30,
-
-            y_label_area_size: 70,
-            y_axis_appearance: axis_appearance.clone(),
-            y_seq_name_style: text_style
-                .clone()
-                .pos(Pos::new(HPos::Center, VPos::Bottom))
-                .transform(FontTransform::Rotate270),
-            y_seq_name_setback: 50,
-        }
+        y_label_area_size: 70,
+        y_axis_appearance: axis_appearance.clone(),
+        y_seq_name_style: text_style
+            .clone()
+            .pos(Pos::new(HPos::Center, VPos::Bottom))
+            .transform(FontTransform::Rotate270),
+        y_seq_name_setback: 50,
     };
+
+    if matches!(args.orthogonal_name_label, OrthogonalNameLabel::Target | OrthogonalNameLabel::Both) {
+        appearance.x_label_area_size = 235;
+        appearance.x_seq_name_style = text_style
+            .clone()
+            .pos(Pos::new(HPos::Right, VPos::Center))
+            .transform(FontTransform::Rotate270);
+        appearance.x_seq_name_setback = 20;
+    }
+    if matches!(args.orthogonal_name_label, OrthogonalNameLabel::Query | OrthogonalNameLabel::Both) {
+        appearance.y_label_area_size = 250;
+        appearance.y_seq_name_style = text_style.clone().pos(Pos::new(HPos::Right, VPos::Center));
+        appearance.y_seq_name_setback = 50;
+    }
+
     // parse the stream
     let mut ctx = Context::new(
         &args,
