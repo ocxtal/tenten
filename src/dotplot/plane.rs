@@ -156,8 +156,8 @@ where
                 } else {
                     annot.picker.default_color().color()
                 };
-                let start = q.range.start / self.base_per_pixel;
-                let end = q.range.end / self.base_per_pixel;
+                let start = (self.qrange.end - q.range.start) / self.base_per_pixel;
+                let end = (self.qrange.end - q.range.end) / self.base_per_pixel;
                 backend.draw_rect(
                     (pos.0, pos.1 + start as i32),
                     (pos.0 + self.width as i32, pos.1 + end as i32),
