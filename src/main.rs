@@ -584,7 +584,18 @@ fn main() {
         y_seq_name_setback: 50,
     };
 
-    if matches!(args.orthogonal_name_label, OrthogonalNameLabel::Target | OrthogonalNameLabel::Both) {
+    let (target_orthogonal, query_orthogonal) = match args.orthogonal_name_label {
+        OrthogonalNameLabel::None => (false, false),
+        OrthogonalNameLabel::Target => (true, false),
+        OrthogonalNameLabel::Query => (false, true),
+        OrthogonalNameLabel::Both => (true, true),
+    };
+    let (x_orthogonal, y_orthogonal) = if args.swap_plot_axes {
+        (query_orthogonal, target_orthogonal)
+    } else {
+        (target_orthogonal, query_orthogonal)
+    };
+    if x_orthogonal {
         appearance.x_label_area_size = 235;
         appearance.x_seq_name_style = text_style
             .clone()
@@ -592,7 +603,7 @@ fn main() {
             .transform(FontTransform::Rotate270);
         appearance.x_seq_name_setback = 20;
     }
-    if matches!(args.orthogonal_name_label, OrthogonalNameLabel::Query | OrthogonalNameLabel::Both) {
+    if y_orthogonal {
         appearance.y_label_area_size = 250;
         appearance.y_seq_name_style = text_style.clone().pos(Pos::new(HPos::Right, VPos::Center));
         appearance.y_seq_name_setback = 50;
