@@ -30,8 +30,12 @@ pub fn plot(name: &str, dotplot: &DotPlot, hide_scale: bool) -> Result<()> {
         fit_in_box: false,
         ..appearance.x_axis_appearance.clone()
     };
-    let length_scale = LengthScale::new(dotplot.base_per_pixel(), appearance.desired_tick_pitch as usize, &scale_appearance);
-    let color_scale = ColorScale::new(dotplot.color_map(), 200, &scale_appearance);
+    let length_scale = LengthScale::new(
+        dotplot.base_per_pixel(),
+        2 * appearance.desired_tick_pitch as usize,
+        &scale_appearance,
+    );
+    let color_scale = ColorScale::new(dotplot.color_map(), 250, &scale_appearance);
 
     let mut center = Vec::new();
     if hide_scale {

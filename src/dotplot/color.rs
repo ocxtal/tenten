@@ -220,8 +220,15 @@ where
         let range = layout.get_range("rv").unwrap();
         let pos = shift(range.get_relative_pos(RectAnchor::TopLeft, RectAnchor::TopLeft));
         for (i, tick) in ticks.iter().enumerate() {
+            let show_label = if i as u32 == self.axis.label_period {
+                true
+            } else if i as u32 == self.axis.label_period - 1 {
+                false
+            } else {
+                i % 2 == 0
+            };
             let tick = Tick {
-                show_label: i % 2 == 0,
+                show_label,
                 ..tick.clone()
             };
             tick.draw(std::iter::once(pos), backend, (0, 0))?;

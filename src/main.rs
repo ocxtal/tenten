@@ -124,6 +124,9 @@ pub struct Args {
     #[clap(help_heading = group_plot!(), long, help = "Hide scale bars", default_value = "false")]
     pub hide_scale: bool,
 
+    #[clap(help_heading = group_plot!(), long, help = "Font size for labels", value_name = "INT", default_value = "12")]
+    pub font_size: usize,
+
     #[clap(
         help_heading = group_range!(),
         short = 't',
@@ -189,7 +192,7 @@ pub struct Args {
     #[clap(help_heading = group_range!(), short = 'A', long, help = "Annotation color configuration", value_name = "FILE")]
     pub annotation_color: Option<String>,
 
-    #[clap(help_heading = group_range!(), long, help = "Place sequence name labels orthogonal to the axes")]
+    #[clap(help_heading = group_range!(), long, help = "Place sequence name labels orthogonal to the axes", value_name = "AXES", default_value = "none")]
     pub orthogonal_name_label: OrthogonalNameLabel,
 
     #[clap(
@@ -557,7 +560,7 @@ fn main() {
     };
 
     // create dotplot
-    let text_style = TextStyle::from(("sans-serif", 12).into_font()).color(&BLACK);
+    let text_style = TextStyle::from(("sans-serif", args.font_size as i32).into_font()).color(&BLACK);
     let axis_appearance = AxisAppearance {
         axis_thickness: 1,
         large_tick_length: 3,
