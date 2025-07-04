@@ -11,7 +11,7 @@
 tenten is implemented in Rust. You will need `rustup` and `cargo` to build it. If they are not installed on your system, you need to install [rustup](https://rustup.rs/) first. If `cargo` is already installed, you can install tenten with the following command:
 
 ```console
-$ cargo install https://github.com/ocxtal/tenten.git
+$ cargo install --git https://github.com/ocxtal/tenten.git
 ```
 
 ## Examples
