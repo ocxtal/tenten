@@ -20,13 +20,19 @@ $ cargo install --git https://github.com/ocxtal/tenten.git
 If you have two sequences for which you want to draw a dotplot, store them in separate FASTA files. Passing these files to tenten will output the dotplot as a PNG image.
 
 ```console
-$ tenten examples/read1.fa examples/read2.fa
+$ tenten examples/read1.fa examples/read2.fa    # out.png is created in the current directory
 ```
 
 Specifying `-s` will draw a self dotplot within a single FASTA file.
 
 ```console
 $ tenten -s examples/read1.fa
+```
+
+To change the resolution, use the `-b` option.
+
+```console
+$ tenten -b500 examples/read1.fa examples/read2.fa  # 500 bases per pixel
 ```
 
 You can specify the output filename with the `-o` option, including directory paths. Adding `-F` will create the directory if it does not exist when specifying an output path (note that without this option, an error will occur if the directory does not exist).
@@ -53,6 +59,18 @@ If you provide only one file without `-s`, it is interpreted as a list of seed m
 $ minimap2 -t1 -xmap-ont -k10 -w1 --print-seeds examples/read1.fa examples/read2.fa 2> seeds.txt
 $ tenten -t examples/read1.fa seeds.txt     # -t examples/read1.fa is required for tenten to know the target sequence lengths
 ```
+
+## Troubleshooting and Tips
+
+### Errors like "memory allocation of 7797831891380000 bytes failed"
+
+This error is caused by tenten trying to draw a dotplot with too high resolution (i.e., the value of `-b` option is too small; note that the default is 100 bases per pixel). You can resolve it by increasing the value of `-b`.
+
+In typical use cases, for small images, you might want around 500px square, for medium images around 1000px square, and for high-resolution images around 4000px square. For example, if the total length of the sequences you want to plot is 1 Mbp, you would specify 1 Mbp / 1000px = 1000 bases per pixel. Considering that high-resolution displays typically have around 4000 (4K) to 5000 (5K) pixels in width, higher resolutions will usually just reduce the usability of the image.
+
+### tenten is too slow
+
+This is caused by minimap2 calculating a large number of seed matches. It often occurs when plotting dotplots of sequences with long repetitive regions. You can improve performance by adjusting the options given to minimap2, so that it ignores high-frequency minimizer matches. For example, providing `-P "minimap2 -t1 --print-seeds -f0.2 {0} {1}"` to tenten will make minimap2 ignore the top 20% of high-frequency minimizers. Be careful that the stronger you filter high-frequency minimizers, the more the resulting dotplot will deviate from the true dotplot.
 
 ## Options
 
