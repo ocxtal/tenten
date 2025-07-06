@@ -1,10 +1,10 @@
 # tenten -- Dotplotter on top of minimap2
 
-**tenten** is a tool to draw dotplots of DNA sequences, using matches from the output of minimap2's debug option `--print-seeds`. It internally calls minimap2 and parses its output. The options given to minimap2 can be controlled from tenten, allowing you to specify minimizer lengths and seed filtering parameters. It can be useful not only as a lightweight and fast dotplotter (which is derived from minimap2) but also as an auxiliary tool for analyzing the details of alignments output by minimap2.
+**tenten** is a tool to draw dotplots of DNA sequences, using matches from the output of minimap2's debug option `--print-seeds`. It internally calls minimap2 and parses its output. The options given to minimap2 can be controlled from tenten, allowing you to specify minimizer lengths and seed filtering parameters. It can be useful as a lightweight and fast dotplotter using minimizers, as well as a debugging tool to investigate the seeds that underlie the alignments reported by minimap2.
 
 ![](./examples/out.png)
 
-**Figure 1.** Dotplots of two reads from [HG002 high-accuracy ultra-long reads](https://epi2me.nanoporetech.com/gm24385_ncm23_preview/). Plotted with `tenten -b500 --font-size=18 -P "minimap2 -t1 -xmap-ont -k10 -w1 --print-seeds {0} {1}" examples/read1.fa examples/read2.fa`.
+**Figure 1.** Dotplot of two reads from [HG002 high-accuracy ultra-long reads](https://epi2me.nanoporetech.com/gm24385_ncm23_preview/). Plotted with `tenten -b500 --font-size=18 -P "minimap2 -t1 -xmap-ont -k10 -w1 --print-seeds {0} {1}" examples/read1.fa examples/read2.fa`.
 
 ## Installation
 
@@ -70,7 +70,7 @@ In typical use cases, for small images, you might want around 500px square, for 
 
 ### tenten is too slow
 
-This is caused by minimap2 calculating a large number of seed matches. It often occurs when plotting dotplots of sequences with long repetitive regions. You can improve performance by adjusting the options given to minimap2, so that it ignores high-frequency minimizer matches. For example, providing `-P "minimap2 -t1 --print-seeds -f0.2 {0} {1}"` to tenten will make minimap2 ignore the top 20% of high-frequency minimizers. Be careful that the stronger you filter high-frequency minimizers, the more the resulting dotplot will deviate from the true dotplot.
+This is caused by minimap2 calculating a large number of seed matches. It often occurs when plotting dotplot(s) of sequences with long repetitive regions. You can improve performance by adjusting the options given to minimap2, so that it ignores high-frequency minimizer matches. For example, providing `-P "minimap2 -t1 --print-seeds -f0.2 {0} {1}"` to tenten will make minimap2 ignore the top 20% of high-frequency minimizers. Be careful that the stronger you filter high-frequency minimizers, the more the resulting dotplot will deviate from the true dotplot.
 
 ## Options
 
