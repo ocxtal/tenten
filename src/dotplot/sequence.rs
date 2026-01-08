@@ -44,6 +44,10 @@ impl SequenceRange {
         };
         start..start + self.range.len() as isize
     }
+
+    pub fn len(&self) -> usize {
+        self.range.len()
+    }
 }
 
 impl fmt::Display for SequenceRange {

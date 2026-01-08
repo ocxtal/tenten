@@ -480,6 +480,14 @@ impl<'a> Context<'a> {
         }
     }
 
+    fn get_target_len(&self) -> usize {
+        self.rseq.iter().map(|x| x.len()).sum()
+    }
+
+    fn get_query_len(&self) -> usize {
+        self.qseq.iter().map(|x| x.len()).sum()
+    }
+
     fn append_seed(&mut self, rname: &str, rpos: usize, is_rev: bool, qname: &str, qpos: usize) {
         self.dotplot.append_seed(rname, rpos, is_rev, qname, qpos);
     }
@@ -500,6 +508,40 @@ fn print_args(args: &[String]) {
         .collect::<Vec<_>>();
     let args = args.join(" ");
     log::info!("args: {args}");
+}
+
+fn check_scale(bases: usize, base_per_pixel: usize) {
+    let pixel = bases as f64 / base_per_pixel as f64;
+    let recommended_base_per_pixel = |image_size: usize| -> usize {
+        let log = (bases as f64 / image_size as f64).log10();
+        let frac = log.fract();
+        let rounded = if frac > 5.0f64.log10() {
+            5
+        } else if frac > 2.0f64.log10() {
+            2
+        } else {
+            1
+        };
+        10f64.powf(log.floor()) as usize * rounded
+    };
+
+    if pixel < 100.0 {
+        log::warn!(
+            "The sequence length {} is too short for the base-per-pixel {} (only {:.1} pixels). Consider using --base-per-pixel {} for medium image.",
+            bases,
+            base_per_pixel,
+            pixel,
+            recommended_base_per_pixel(1000),
+        );
+    } else if pixel > 4000.0 {
+        log::warn!(
+            "The sequence length {} is too long for the base-per-pixel {} (over {:.1} pixels). Consider using --base-per-pixel {} for medium image.",
+            bases,
+            base_per_pixel,
+            pixel,
+            recommended_base_per_pixel(1000),
+        );
+    }
 }
 
 fn main() {
@@ -621,6 +663,11 @@ fn main() {
         &annot_color,
         &appearance,
     );
+    let max_seq_len = ctx.get_target_len().max(ctx.get_query_len());
+    if max_seq_len > 0 {
+        check_scale(max_seq_len, args.base_per_pixel);
+    }
+
     let parser = SeedParser::new(stream.lines(), args.swap_generator);
     for token in parser {
         ctx.process_token(token);
