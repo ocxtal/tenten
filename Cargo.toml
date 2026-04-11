@@ -12,9 +12,11 @@ iterm2img = "0.1"
 log = "0.4"
 plotters = { version = "0.3", features = ["bitmap_backend", "svg_backend"] }
 plotters-backend = "0.3"
+pixels = "0.16"
 rand = "0.9"
 regex = "1.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 tempfile = "3.19"
 transpose = "0.2.3"
+winit = "0.30"
