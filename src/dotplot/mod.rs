@@ -1,5 +1,6 @@
 mod axis;
 mod color;
+mod hit;
 mod layout;
 mod plane;
 mod plot;
@@ -8,6 +9,8 @@ mod sequence;
 use anyhow::Result;
 pub use axis::{AxisAppearance, LengthScale};
 pub use color::{AnnotationColorMap, ColorScale, DensityColorMap};
+use hit::DotPlotHitContext;
+pub use hit::{DotPlotHit, SequencePosition};
 pub use plane::DotPlane;
 pub use plot::{DotPlot, DotPlotAppearance};
 use plotters::prelude::*;
@@ -29,6 +32,19 @@ pub struct PlotImage {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+    layout: Layout,
+    dotplot_hit: DotPlotHitContext,
+}
+
+impl PlotImage {
+    pub fn hit_test(&self, x: u32, y: u32) -> Option<DotPlotHit> {
+        let hit = self.layout.hit_test(x, y)?;
+        if hit.id.as_deref() == Some("dotplot") {
+            self.dotplot_hit.hit_test(hit.local_pos)
+        } else {
+            None
+        }
+    }
 }
 
 fn build_plot_layout(dotplot: &DotPlot, hide_scale: bool) -> Layout {
@@ -143,7 +159,13 @@ pub fn render_rgba(dotplot: &DotPlot, hide_scale: bool) -> Result<PlotImage> {
         rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 0xff]);
     }
 
-    Ok(PlotImage { width, height, rgba })
+    Ok(PlotImage {
+        width,
+        height,
+        rgba,
+        layout,
+        dotplot_hit: dotplot.hit_context(),
+    })
 }
 
 pub fn plot(name: &str, dotplot: &DotPlot, hide_scale: bool) -> Result<()> {

@@ -438,7 +438,8 @@ impl<'a> Context<'a> {
 
     fn plot_window(&self, dotplot: &DotPlot) {
         let image = render_rgba(dotplot, self.args.hide_scale).unwrap();
-        window::show(image, "tenten").unwrap();
+        let tooltip_style = TextStyle::from(("sans-serif", self.args.font_size as i32).into_font()).color(&BLACK);
+        window::show(image, "tenten", tooltip_style).unwrap();
     }
 
     fn plot(&self, dotplot: &DotPlot) {
