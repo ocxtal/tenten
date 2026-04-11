@@ -127,8 +127,8 @@ Output options:
   -F, --create-missing-dir   Create directory if it doesn't exist
   -p, --split-plot           Create plot for each target/query pair
   -S, --sorted               Assume the seed generator output is sorted by query and reference names (reduces memory usage when --split-plot)
-  -I, --iterm2               Print plot to terminal (encoded to iTerm2 image format)
   -w, --window               Open plot in a window
+  -I, --iterm2               Print plot to terminal (encoded to iTerm2 image format)
   -W, --iterm2-width <INT>   Width in characters when printing plot to terminal
   -H, --iterm2-height <INT>  Height in characters when printing plot to terminal
 ```
@@ -139,4 +139,4 @@ Output options:
 
 ## Copyright and Licenses
 
-2024-2025, Hajime Suzuki. Licensed under MIT.
+2024-2026, Hajime Suzuki. Licensed under MIT.

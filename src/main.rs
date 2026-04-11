@@ -223,15 +223,6 @@ pub struct Args {
 
     #[clap(
         help_heading = group_output!(),
-        short = 'I',
-        long,
-        help = "Print plot to terminal (encoded to iTerm2 image format)",
-        default_value = "false"
-    )]
-    pub iterm2: bool,
-
-    #[clap(
-        help_heading = group_output!(),
         short = 'w',
         long,
         help = "Open plot in a window",
@@ -239,6 +230,15 @@ pub struct Args {
         conflicts_with_all = ["iterm2", "split_plot"]
     )]
     pub window: bool,
+
+    #[clap(
+        help_heading = group_output!(),
+        short = 'I',
+        long,
+        help = "Print plot to terminal (encoded to iTerm2 image format)",
+        default_value = "false"
+    )]
+    pub iterm2: bool,
 
     #[clap(help_heading = group_output!(), short = 'W', long, help = "Width in characters when printing plot to terminal", value_name = "INT")]
     pub iterm2_width: Option<usize>,
