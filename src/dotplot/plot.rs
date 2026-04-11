@@ -5,6 +5,7 @@
 use crate::dotplot::Direction;
 use crate::dotplot::axis::{Axis, AxisAppearance, Tick};
 use crate::dotplot::color::{AnnotationColorMap, DensityColorMap};
+use crate::dotplot::hit::{DotPlotHitContext, SequencePosition};
 use crate::dotplot::layout::{Layout, LayoutElem, LayoutMargin, RectAnchor};
 use crate::dotplot::plane::DotPlane;
 use crate::dotplot::sequence::SequenceRange;
@@ -31,41 +32,59 @@ pub struct DotPlotAppearance<'a> {
 }
 
 #[derive(Clone, Debug)]
-struct StackedSequenceRange<'a> {
-    pos_seq_pairs: Vec<(u32, &'a SequenceRange)>,
+pub(crate) struct StackedSequenceRange {
+    pos_seq_pairs: Vec<(u32, SequenceRange)>,
     pixels: u32,
 }
 
-impl<'a> StackedSequenceRange<'a> {
-    fn new(seqs: &'a [SequenceRange], base_per_pixel: usize, spacer_thickness: u32) -> StackedSequenceRange<'a> {
+impl StackedSequenceRange {
+    pub(crate) fn new(seqs: &[SequenceRange], base_per_pixel: usize, spacer_thickness: u32) -> StackedSequenceRange {
         let mut pixels = 0;
         let mut pos_seq_pairs = Vec::new();
         for seq in seqs {
-            pos_seq_pairs.push((pixels, seq));
+            pos_seq_pairs.push((pixels, seq.clone()));
             pixels += seq.range.len().div_ceil(base_per_pixel) as u32 + spacer_thickness;
         }
         StackedSequenceRange { pos_seq_pairs, pixels }
     }
+
+    pub(crate) fn pixels(&self) -> u32 {
+        self.pixels
+    }
+
+    pub(crate) fn hit(&self, pixel: u32, base_per_pixel: usize) -> Option<SequencePosition> {
+        for (start, seq) in &self.pos_seq_pairs {
+            let len = seq.range.len().div_ceil(base_per_pixel) as u32;
+            if (*start..*start + len).contains(&pixel) {
+                let pos = seq.virtual_range().start + (pixel - start) as isize * base_per_pixel as isize;
+                return Some(SequencePosition {
+                    sequence: seq.virtual_name().to_string(),
+                    pos,
+                });
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug)]
-struct SortedDotPlanes<'a> {
-    x_seqs: StackedSequenceRange<'a>,
-    y_seqs: StackedSequenceRange<'a>,
-    sorted_planes: Vec<&'a DotPlane>,
+struct SortedDotPlanes {
+    x_seqs: StackedSequenceRange,
+    y_seqs: StackedSequenceRange,
+    sorted_plane_indices: Vec<usize>,
 }
 
-impl<'a> SortedDotPlanes<'a> {
-    fn new(dotplot: &'a DotPlot, spacer_thickness: u32) -> SortedDotPlanes<'a> {
+impl SortedDotPlanes {
+    fn new(dotplot: &DotPlot, spacer_thickness: u32) -> SortedDotPlanes {
         let x_seqs = StackedSequenceRange::new(&dotplot.rseq, dotplot.base_per_pixel, spacer_thickness);
         let y_seqs = StackedSequenceRange::new(&dotplot.qseq, dotplot.base_per_pixel, spacer_thickness);
 
-        let mut planes = dotplot.planes.iter().collect::<Vec<_>>();
-        planes.sort_by(|a, b| a.pair_id.cmp(&b.pair_id));
+        let mut planes = dotplot.planes.iter().enumerate().collect::<Vec<_>>();
+        planes.sort_by(|(_, a), (_, b)| a.pair_id.cmp(&b.pair_id));
         SortedDotPlanes {
             x_seqs,
             y_seqs,
-            sorted_planes: planes,
+            sorted_plane_indices: planes.into_iter().map(|(i, _)| i).collect(),
         }
     }
 
@@ -73,13 +92,13 @@ impl<'a> SortedDotPlanes<'a> {
         (self.x_seqs.pixels, self.y_seqs.pixels)
     }
 
-    fn get_row(&'a self, row: usize) -> Option<&'a [&'a DotPlane]> {
+    fn get_row(&self, row: usize) -> Option<&[usize]> {
         let start = row * self.x_seqs.pos_seq_pairs.len();
         let end = start + self.x_seqs.pos_seq_pairs.len();
-        if start > end || end > self.sorted_planes.len() {
+        if start > end || end > self.sorted_plane_indices.len() {
             return None;
         }
-        Some(&self.sorted_planes[start..end])
+        Some(&self.sorted_plane_indices[start..end])
     }
 }
 
@@ -211,6 +230,15 @@ impl<'a> DotPlot<'a> {
 
     pub fn appearance(&'a self) -> &'a DotPlotAppearance<'a> {
         self.app
+    }
+
+    pub(crate) fn hit_context(&self) -> DotPlotHitContext {
+        DotPlotHitContext::new(
+            StackedSequenceRange::new(&self.rseq, self.base_per_pixel, self.app.spacer_thickness),
+            StackedSequenceRange::new(&self.qseq, self.base_per_pixel, self.app.spacer_thickness),
+            self.base_per_pixel,
+            self.app.y_label_area_size,
+        )
     }
 
     pub fn add_target(&mut self, r: &SequenceRange) {
@@ -350,16 +378,17 @@ impl<'a> DotPlot<'a> {
         &'a self,
         pos: (i32, i32),
         backend: &mut DB,
-        sorted_planes: &'a SortedDotPlanes,
+        sorted_planes: &SortedDotPlanes,
     ) -> Result<(), DrawingErrorKind<DB::ErrorType>>
     where
         DB: DrawingBackend,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
-        for (i, &(y, _)) in sorted_planes.y_seqs.pos_seq_pairs.iter().enumerate() {
-            let planes = sorted_planes.get_row(i).unwrap();
-            for (&(x, _), plane) in sorted_planes.x_seqs.pos_seq_pairs.iter().zip(planes.iter()) {
-                self.draw_block(shift((x as i32, -(y as i32))), backend, plane)?;
+        for (i, (y, _)) in sorted_planes.y_seqs.pos_seq_pairs.iter().enumerate() {
+            let plane_indices = sorted_planes.get_row(i).unwrap();
+            for ((x, _), &plane_index) in sorted_planes.x_seqs.pos_seq_pairs.iter().zip(plane_indices.iter()) {
+                let plane = &self.planes[plane_index];
+                self.draw_block(shift((*x as i32, -(*y as i32))), backend, plane)?;
             }
         }
         Ok(())
@@ -426,8 +455,8 @@ impl<'a> DotPlot<'a> {
         F: Fn(isize, usize) -> String,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
-        for &(x, seq) in sorted_planes.x_seqs.pos_seq_pairs.iter() {
-            self.draw_xlabel(shift((x as i32, 0)), backend, axis, seq, &label_formatter)?;
+        for (x, seq) in sorted_planes.x_seqs.pos_seq_pairs.iter() {
+            self.draw_xlabel(shift((*x as i32, 0)), backend, axis, seq, &label_formatter)?;
         }
         Ok(())
     }
@@ -494,8 +523,8 @@ impl<'a> DotPlot<'a> {
         F: Fn(isize, usize) -> String,
     {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
-        for &(y, seq) in sorted_planes.y_seqs.pos_seq_pairs.iter() {
-            self.draw_ylabel(shift((0, -(y as i32))), backend, axis, seq, &label_formatter)?;
+        for (y, seq) in sorted_planes.y_seqs.pos_seq_pairs.iter() {
+            self.draw_ylabel(shift((0, -(*y as i32))), backend, axis, seq, &label_formatter)?;
         }
         Ok(())
     }

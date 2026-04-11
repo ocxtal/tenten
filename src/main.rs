@@ -1,6 +1,7 @@
 mod command;
 mod file;
 mod parser;
+mod window;
 
 use crate::command::SeedGeneratorCommand;
 use crate::file::CachedFile;
@@ -222,6 +223,16 @@ pub struct Args {
 
     #[clap(
         help_heading = group_output!(),
+        short = 'w',
+        long,
+        help = "Open plot in a window",
+        default_value = "false",
+        conflicts_with_all = ["iterm2", "split_plot"]
+    )]
+    pub window: bool,
+
+    #[clap(
+        help_heading = group_output!(),
         short = 'I',
         long,
         help = "Print plot to terminal (encoded to iTerm2 image format)",
@@ -425,6 +436,12 @@ impl<'a> Context<'a> {
         println!("{encoded}");
     }
 
+    fn plot_window(&self, dotplot: &DotPlot) {
+        let image = render_rgba(dotplot, self.args.hide_scale).unwrap();
+        let tooltip_style = TextStyle::from(("sans-serif", self.args.font_size as i32).into_font()).color(&BLACK);
+        window::show(image, "tenten", tooltip_style).unwrap();
+    }
+
     fn plot(&self, dotplot: &DotPlot) {
         let count = dotplot.get_seed_count();
         if count < self.args.min_count {
@@ -437,7 +454,9 @@ impl<'a> Context<'a> {
             );
             return;
         }
-        if self.args.iterm2 {
+        if self.args.window {
+            self.plot_window(dotplot);
+        } else if self.args.iterm2 {
             self.plot_iterm2(dotplot);
         } else {
             self.plot_file(dotplot);
@@ -553,7 +572,7 @@ fn main() {
 
     // check output directory exists
     let dir = Path::new(&args.output).parent().unwrap();
-    if dir != Path::new("") && !dir.exists() {
+    if !args.window && dir != Path::new("") && !dir.exists() {
         if args.create_missing_dir {
             log::info!("output directory {dir:?} does not exist. creating it.");
             std::fs::create_dir_all(dir).unwrap();

@@ -47,6 +47,12 @@ If you are using iTerm2, you can specify `-I` to output the dotplot directly to 
 $ tenten -I examples/read1.fa examples/read2.fa
 ```
 
+You can specify `-w` or `--window` to open the dotplot in a window instead of writing it to a file. If the image is larger than the window, you can scroll the image.
+
+```console
+$ tenten -w examples/read1.fa examples/read2.fa
+```
+
 Specifying `-P` allows you to set options for launching minimap2. In particular, the `-f` option of minimap2 is useful for controlling the threshold for removing high-frequency minimizers. You can specify a quantile as a decimal between 0.0 and 1.0, or an integer to indicate the number of occurrences on the target sequence. Additionally, it may be useful to specify presets like `-x map-ont` or basic minimizer parameters such as `-k` and `-w`. For example, specifying `-w1` will plot all k-mers (though it will be very slow). Note that `--print-seeds` is required in the command template specified with `-P` for tenten to receive seed matches from minimap2.
 
 ```console
@@ -121,6 +127,7 @@ Output options:
   -F, --create-missing-dir   Create directory if it doesn't exist
   -p, --split-plot           Create plot for each target/query pair
   -S, --sorted               Assume the seed generator output is sorted by query and reference names (reduces memory usage when --split-plot)
+  -w, --window               Open plot in a window
   -I, --iterm2               Print plot to terminal (encoded to iTerm2 image format)
   -W, --iterm2-width <INT>   Width in characters when printing plot to terminal
   -H, --iterm2-height <INT>  Height in characters when printing plot to terminal
@@ -132,4 +139,4 @@ Output options:
 
 ## Copyright and Licenses
 
-2024-2025, Hajime Suzuki. Licensed under MIT.
+2024-2026, Hajime Suzuki. Licensed under MIT.

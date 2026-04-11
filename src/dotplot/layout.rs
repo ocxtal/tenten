@@ -55,6 +55,14 @@ pub struct RectPosition {
 }
 
 #[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct LayoutHit {
+    pub path: String,
+    pub id: Option<String>,
+    pub local_pos: (u32, u32),
+}
+
+#[allow(dead_code)]
 #[derive(Copy, Clone, Debug)]
 pub enum RectAnchor {
     TopLeft,
@@ -93,6 +101,14 @@ impl RectPosition {
             x_range: self.x_range.start + margin.left..self.x_range.end + margin.left,
             y_range: self.y_range.start + margin.top..self.y_range.end + margin.top,
         }
+    }
+
+    pub fn contains(&self, pos: (u32, u32)) -> bool {
+        self.x_range.contains(&pos.0) && self.y_range.contains(&pos.1)
+    }
+
+    pub fn local_pos(&self, pos: (u32, u32)) -> Option<(u32, u32)> {
+        self.contains(pos).then(|| (pos.0 - self.x_range.start, pos.1 - self.y_range.start))
     }
 }
 
@@ -354,6 +370,93 @@ impl LayoutElem {
 
         (w[1..w.len() - 1].to_vec(), h[1..h.len() - 1].to_vec())
     }
+
+    fn join_path(path: &str, child: &str) -> String {
+        if path.is_empty() {
+            format!(".{child}")
+        } else {
+            format!("{path}.{child}")
+        }
+    }
+
+    fn hit_test(&self, path: &str, pos: (u32, u32)) -> Option<LayoutHit> {
+        let (width, height) = self.get_dim();
+        if pos.0 >= width || pos.1 >= height {
+            return None;
+        }
+
+        match self {
+            LayoutElem::Rect { id, .. } => Some(LayoutHit {
+                path: path.to_string(),
+                id: id.clone(),
+                local_pos: pos,
+            }),
+            LayoutElem::Horizontal(inner) => {
+                let mut x_offset = 0;
+                for (i, elem) in inner.iter().enumerate() {
+                    let (w, _) = elem.get_dim();
+                    if pos.0 < x_offset + w {
+                        return elem.hit_test(&Self::join_path(path, &i.to_string()), (pos.0 - x_offset, pos.1));
+                    }
+                    x_offset += w;
+                }
+                None
+            }
+            LayoutElem::Vertical(inner) => {
+                let mut y_offset = 0;
+                for (i, elem) in inner.iter().enumerate() {
+                    let (_, h) = elem.get_dim();
+                    if pos.1 < y_offset + h {
+                        return elem.hit_test(&Self::join_path(path, &i.to_string()), (pos.0, pos.1 - y_offset));
+                    }
+                    y_offset += h;
+                }
+                None
+            }
+            LayoutElem::Margined { margin, center } => {
+                let (center_w, center_h) = center.get_dim();
+                let x_tag = if pos.0 < margin.left {
+                    "left"
+                } else if pos.0 < margin.left + center_w {
+                    "center"
+                } else {
+                    "right"
+                };
+                let y_tag = if pos.1 < margin.top {
+                    "top"
+                } else if pos.1 < margin.top + center_h {
+                    "center"
+                } else {
+                    "bottom"
+                };
+
+                let tag = match (y_tag, x_tag) {
+                    ("top", "left") => "top-left",
+                    ("top", "center") => "top",
+                    ("top", "right") => "top-right",
+                    ("center", "left") => "left",
+                    ("center", "center") => "center",
+                    ("center", "right") => "right",
+                    ("bottom", "left") => "bottom-left",
+                    ("bottom", "center") => "bottom",
+                    ("bottom", "right") => "bottom-right",
+                    _ => unreachable!(),
+                };
+                let child_path = Self::join_path(path, tag);
+
+                if tag == "center" {
+                    center.hit_test(&child_path, (pos.0 - margin.left, pos.1 - margin.top))
+                } else {
+                    let range = self.get_range_by_path(tag)?;
+                    Some(LayoutHit {
+                        path: child_path,
+                        id: None,
+                        local_pos: range.local_pos(pos)?,
+                    })
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -370,6 +473,12 @@ impl Deref for Layout {
 impl DerefMut for Layout {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl Layout {
+    pub fn hit_test(&self, x: u32, y: u32) -> Option<LayoutHit> {
+        self.0.hit_test("", (x, y))
     }
 }
 
