@@ -98,11 +98,10 @@ fn build_plot_layout(dotplot: &DotPlot, hide_scale: bool) -> Layout {
         height: dotplot.get_dim().1,
     });
 
-    let layout = Layout(LayoutElem::Margined {
+    Layout(LayoutElem::Margined {
         margin: LayoutMargin::uniform(20),
         center: Box::new(LayoutElem::Vertical(center)),
-    });
-    layout
+    })
 }
 
 fn draw_plot_to_areas<DB>(areas: &StructuredDrawingArea<DB>, dotplot: &DotPlot) -> Result<()>
