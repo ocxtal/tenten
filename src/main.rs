@@ -1,5 +1,6 @@
 mod command;
 mod file;
+mod http;
 mod parser;
 mod window;
 
@@ -246,6 +247,21 @@ pub struct Args {
     #[clap(help_heading = group_output!(), short = 'H', long, help = "Height in characters when printing plot to terminal", value_name = "INT")]
     pub iterm2_height: Option<usize>,
 
+    #[clap(
+        help_heading = group_output!(),
+        long,
+        help = "Host plot through a local HTTP server",
+        default_value = "false",
+        conflicts_with_all = ["window", "iterm2", "split_plot"]
+    )]
+    pub http: bool,
+
+    #[clap(help_heading = group_output!(), long, help = "Host address for --http", value_name = "HOST", default_value = "127.0.0.1")]
+    pub http_host: String,
+
+    #[clap(help_heading = group_output!(), long, help = "Port for --http", value_name = "PORT", default_value = "8080")]
+    pub http_port: u16,
+
     #[clap(long, help = "Suppress logs", default_value = "false")]
     pub quiet: bool,
 }
@@ -438,8 +454,16 @@ impl<'a> Context<'a> {
 
     fn plot_window(&self, dotplot: &DotPlot) {
         let image = render_rgba(dotplot, self.args.hide_scale).unwrap();
+        let hit_map = PlotHitMap::new(dotplot, self.args.hide_scale);
         let tooltip_style = TextStyle::from(("sans-serif", self.args.font_size as i32).into_font()).color(&BLACK);
-        window::show(image, "tenten", tooltip_style).unwrap();
+        window::show(image, hit_map, "tenten", tooltip_style).unwrap();
+    }
+
+    fn plot_http(&self, dotplot: &DotPlot) {
+        let file = NamedTempFile::with_suffix(&self.suffix).unwrap();
+        plot(file.path().to_str().unwrap(), dotplot, self.args.hide_scale).unwrap();
+        let hit_map = PlotHitMap::new(dotplot, self.args.hide_scale);
+        http::serve(file, hit_map, &self.args.http_host, self.args.http_port, &self.suffix).unwrap();
     }
 
     fn plot(&self, dotplot: &DotPlot) {
@@ -458,6 +482,8 @@ impl<'a> Context<'a> {
             self.plot_window(dotplot);
         } else if self.args.iterm2 {
             self.plot_iterm2(dotplot);
+        } else if self.args.http {
+            self.plot_http(dotplot);
         } else {
             self.plot_file(dotplot);
         }
@@ -571,14 +597,16 @@ fn main() {
     print_args(&std::env::args().collect::<Vec<_>>());
 
     // check output directory exists
-    let dir = Path::new(&args.output).parent().unwrap();
-    if !args.window && dir != Path::new("") && !dir.exists() {
-        if args.create_missing_dir {
-            log::info!("output directory {dir:?} does not exist. creating it.");
-            std::fs::create_dir_all(dir).unwrap();
-        } else {
-            log::error!("output directory {dir:?} does not exist. abort.");
-            return;
+    if !args.window && !args.iterm2 && !args.http {
+        let dir = Path::new(&args.output).parent().unwrap();
+        if dir != Path::new("") && !dir.exists() {
+            if args.create_missing_dir {
+                log::info!("output directory {dir:?} does not exist. creating it.");
+                std::fs::create_dir_all(dir).unwrap();
+            } else {
+                log::error!("output directory {dir:?} does not exist. abort.");
+                return;
+            }
         }
     }
 

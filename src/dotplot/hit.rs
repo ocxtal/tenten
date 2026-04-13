@@ -1,4 +1,5 @@
-use crate::dotplot::plot::StackedSequenceRange;
+use crate::dotplot::layout::{Layout, build_plot_layout};
+use crate::dotplot::plot::{DotPlot, StackedSequenceRange};
 
 #[derive(Clone, Debug)]
 pub struct SequencePosition {
@@ -10,6 +11,29 @@ pub struct SequencePosition {
 pub struct DotPlotHit {
     pub target: Option<SequencePosition>,
     pub query: Option<SequencePosition>,
+}
+
+pub struct PlotHitMap {
+    layout: Layout,
+    dotplot_hit: DotPlotHitContext,
+}
+
+impl PlotHitMap {
+    pub fn new(dotplot: &DotPlot, hide_scale: bool) -> PlotHitMap {
+        PlotHitMap {
+            layout: build_plot_layout(dotplot, hide_scale),
+            dotplot_hit: dotplot.hit_context(),
+        }
+    }
+
+    pub fn hit_test(&self, x: u32, y: u32) -> Option<DotPlotHit> {
+        let hit = self.layout.hit_test(x, y)?;
+        if hit.id.as_deref() == Some("dotplot") {
+            self.dotplot_hit.hit_test(hit.local_pos)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

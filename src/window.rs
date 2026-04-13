@@ -3,7 +3,7 @@ use pixels::{Pixels, SurfaceTexture};
 use plotters::prelude::*;
 use plotters::style::text_anchor::{HPos, Pos, VPos};
 use std::sync::Arc;
-use tenten::{DotPlotHit, PlotImage, TextStyle};
+use tenten::{DotPlotHit, PlotHitMap, PlotImage, TextStyle};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -15,9 +15,9 @@ const LINE_DELTA_IN_PIXELS: f64 = 40.0;
 const TOOLTIP_PADDING: u32 = 2;
 const TOOLTIP_BORDER: u32 = 1;
 
-pub fn show(image: PlotImage, title: &str, tooltip_style: TextStyle<'static>) -> Result<()> {
+pub fn show(image: PlotImage, hit_map: PlotHitMap, title: &str, tooltip_style: TextStyle<'static>) -> Result<()> {
     let event_loop = EventLoop::new().context("failed to create event loop")?;
-    let mut app = ViewerApp::new(image, title, tooltip_style);
+    let mut app = ViewerApp::new(image, hit_map, title, tooltip_style);
     event_loop.run_app(&mut app).context("window event loop failed")
 }
 
@@ -28,6 +28,7 @@ struct Tooltip {
 
 struct ViewerApp {
     image: PlotImage,
+    hit_map: PlotHitMap,
     title: String,
     tooltip_style: TextStyle<'static>,
     window: Option<Arc<Window>>,
@@ -39,9 +40,10 @@ struct ViewerApp {
 }
 
 impl ViewerApp {
-    fn new(image: PlotImage, title: &str, tooltip_style: TextStyle<'static>) -> Self {
+    fn new(image: PlotImage, hit_map: PlotHitMap, title: &str, tooltip_style: TextStyle<'static>) -> Self {
         Self {
             image,
+            hit_map,
             title: title.to_string(),
             tooltip_style: tooltip_style.pos(Pos::new(HPos::Left, VPos::Top)),
             window: None,
@@ -112,7 +114,7 @@ impl ViewerApp {
 
         let image_pos = (image_x.floor() as u32, image_y.floor() as u32);
         if let Some(text) = self
-            .image
+            .hit_map
             .hit_test(image_pos.0, image_pos.1)
             .and_then(|hit| Self::format_tooltip(&hit))
         {

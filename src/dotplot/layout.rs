@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut, Range};
 
+use super::axis::{AxisAppearance, LengthScale};
+use super::color::ColorScale;
+use super::plot::DotPlot;
+
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
 pub struct LayoutMargin {
     pub left: u32,
@@ -480,6 +484,63 @@ impl Layout {
     pub fn hit_test(&self, x: u32, y: u32) -> Option<LayoutHit> {
         self.0.hit_test("", (x, y))
     }
+}
+
+pub(crate) fn build_plot_layout(dotplot: &DotPlot, hide_scale: bool) -> Layout {
+    let appearance = dotplot.appearance();
+    let scale_appearance = AxisAppearance {
+        fit_in_box: false,
+        ..appearance.x_axis_appearance.clone()
+    };
+    let length_scale = LengthScale::new(
+        dotplot.base_per_pixel(),
+        2 * appearance.desired_tick_pitch as usize,
+        &scale_appearance,
+    );
+    let color_scale = ColorScale::new(dotplot.color_map(), 250, &scale_appearance);
+
+    let mut center = Vec::new();
+    if hide_scale {
+        center.push(LayoutElem::Horizontal(vec![LayoutElem::Rect {
+            id: None,
+            width: 50,
+            height: 50,
+        }]));
+    } else {
+        center.push(LayoutElem::Horizontal(vec![
+            LayoutElem::Rect {
+                id: None,
+                width: 20,
+                height: 50,
+            },
+            LayoutElem::Margined {
+                margin: LayoutMargin::new(0, 50, 10, 10),
+                center: Box::new(LayoutElem::Rect {
+                    id: Some("length_scale".to_string()),
+                    width: length_scale.get_dim().0,
+                    height: length_scale.get_dim().1,
+                }),
+            },
+            LayoutElem::Margined {
+                margin: LayoutMargin::new(0, 30, 10, 10),
+                center: Box::new(LayoutElem::Rect {
+                    id: Some("color_scale".to_string()),
+                    width: color_scale.get_dim().0,
+                    height: color_scale.get_dim().1,
+                }),
+            },
+        ]));
+    }
+    center.push(LayoutElem::Rect {
+        id: Some("dotplot".to_string()),
+        width: dotplot.get_dim().0,
+        height: dotplot.get_dim().1,
+    });
+
+    Layout(LayoutElem::Margined {
+        margin: LayoutMargin::uniform(20),
+        center: Box::new(LayoutElem::Vertical(center)),
+    })
 }
 
 pub struct StructuredDrawingArea<T>
