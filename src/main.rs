@@ -7,7 +7,8 @@ mod window;
 use crate::command::SeedGeneratorCommand;
 use crate::file::CachedFile;
 use crate::parser::{SeedParser, SeedToken};
-use clap::{Parser, ValueEnum};
+use clap::parser::ValueSource;
+use clap::{CommandFactory, FromArgMatches, Parser, ValueEnum};
 use hex_color::HexColor;
 use plotters::prelude::*;
 use plotters::style::text_anchor::{HPos, Pos, VPos};
@@ -39,6 +40,9 @@ macro_rules! group_output {
     };
 }
 
+const DEFAULT_SEED_GENERATOR: &str = "minimap2 -t1 --print-seeds {0} {1}";
+const DEFAULT_CHAIN_SEED_GENERATOR: &str = "minimap2 -t1 --print-seeds --print-chain {0} {1}";
+
 #[derive(Copy, Clone, Debug, ValueEnum)]
 pub enum OrthogonalNameLabel {
     None,
@@ -66,9 +70,9 @@ pub struct Args {
         long,
         help = "Seed generator command template",
         value_name = "COMMAND TEMPLATE",
-        default_value = "minimap2 -t1 --print-seeds {0} {1}"
+        default_value = DEFAULT_SEED_GENERATOR
     )]
-    pub seed_generator: Option<String>,
+    pub seed_generator: String,
 
     #[clap(
         help_heading = group_input!(),
@@ -86,6 +90,14 @@ pub struct Args {
 
     #[clap(help_heading = group_input!(), short = 'x', long, help = "Swap target and query for seed generator", default_value = "false")]
     pub swap_generator: bool,
+
+    #[clap(
+        help_heading = group_input!(),
+        long,
+        help = "Overlay minimap2 --print-chain anchors on the seed dotplot",
+        default_value = "false"
+    )]
+    pub chain_overlay: bool,
 
     #[clap(help_heading = group_plot!(), short = 'b', long, help = "Bases per pixel", value_name = "INT", default_value = "100")]
     pub base_per_pixel: usize,
@@ -327,6 +339,7 @@ struct Context<'a> {
     qseq: Vec<SequenceRange>,
     dotplot: DotPlot<'a>,
     dot_color: &'a DensityColorMap,
+    chain_color: &'a DensityColorMap,
     rannot: Vec<SequenceRange>,
     qannot: Vec<SequenceRange>,
     annot_color: &'a AnnotationColorMap,
@@ -340,6 +353,7 @@ impl<'a> Context<'a> {
         target: &str,
         query: Option<&str>,
         dot_color: &'a DensityColorMap,
+        chain_color: &'a DensityColorMap,
         annot_color: &'a AnnotationColorMap,
         appearance: &'a DotPlotAppearance<'a>,
     ) -> Self {
@@ -401,7 +415,11 @@ impl<'a> Context<'a> {
         log::debug!("target annotations: {rannot:?}");
         log::debug!("query annotations: {qannot:?}");
 
-        let mut dotplot = DotPlot::new(&rseq, &qseq, args.base_per_pixel, dot_color, appearance);
+        let mut dotplot = if args.chain_overlay {
+            DotPlot::with_chain(&rseq, &qseq, args.base_per_pixel, dot_color, chain_color, appearance)
+        } else {
+            DotPlot::new(&rseq, &qseq, args.base_per_pixel, dot_color, appearance)
+        };
         dotplot.add_annotation(&rannot, &qannot, annot_color);
         Context {
             suffix,
@@ -410,6 +428,7 @@ impl<'a> Context<'a> {
             qseq,
             dotplot,
             dot_color,
+            chain_color,
             rannot,
             qannot,
             annot_color,
@@ -491,7 +510,18 @@ impl<'a> Context<'a> {
 
     fn flush(&mut self) {
         let new_dotplot = || {
-            let mut dotplot = DotPlot::new(&self.rseq, &self.qseq, self.args.base_per_pixel, self.dot_color, self.appearance);
+            let mut dotplot = if self.args.chain_overlay {
+                DotPlot::with_chain(
+                    &self.rseq,
+                    &self.qseq,
+                    self.args.base_per_pixel,
+                    self.dot_color,
+                    self.chain_color,
+                    self.appearance,
+                )
+            } else {
+                DotPlot::new(&self.rseq, &self.qseq, self.args.base_per_pixel, self.dot_color, self.appearance)
+            };
             dotplot.add_annotation(&self.rannot, &self.qannot, self.annot_color);
             dotplot
         };
@@ -537,11 +567,16 @@ impl<'a> Context<'a> {
         self.dotplot.append_seed(rname, rpos, is_rev, qname, qpos);
     }
 
+    fn append_chain_anchor(&mut self, rname: &str, rpos: usize, is_rev: bool, qname: &str, qpos: usize) {
+        self.dotplot.append_chain_anchor(rname, rpos, is_rev, qname, qpos);
+    }
+
     fn process_token(&mut self, token: SeedToken) {
         match token {
             SeedToken::NewTarget(r) => self.add_target(&r),
             SeedToken::NewQuery(q) => self.add_query(&q),
             SeedToken::Seed(rname, rpos, is_rev, qname, qpos) => self.append_seed(&rname, rpos, is_rev, &qname, qpos),
+            SeedToken::ChainAnchor(rname, rpos, is_rev, qname, qpos) => self.append_chain_anchor(&rname, rpos, is_rev, &qname, qpos),
         }
     }
 }
@@ -590,7 +625,9 @@ fn check_scale(bases: usize, base_per_pixel: usize) {
 }
 
 fn main() {
-    let args = Args::parse();
+    let matches = Args::command().get_matches();
+    let is_default_generator = matches.value_source("seed_generator") == Some(ValueSource::DefaultValue);
+    let args = Args::from_arg_matches(&matches).unwrap();
 
     let default_log_level = if args.quiet { "off" } else { "info" };
     env_logger::init_from_env(env_logger::Env::new().default_filter_or(default_log_level));
@@ -618,7 +655,11 @@ fn main() {
     };
 
     let stream: Box<dyn Read> = if let Some(query) = &query {
-        let seed_generator = args.seed_generator.as_ref().unwrap();
+        let seed_generator = if args.chain_overlay && is_default_generator {
+            DEFAULT_CHAIN_SEED_GENERATOR
+        } else {
+            &args.seed_generator
+        };
         let inputs: [&str; 2] = if args.swap_generator {
             [query.name(), target.name()]
         } else {
@@ -635,6 +676,11 @@ fn main() {
         palette: [RGBColor(255, 0, 64), RGBColor(0, 64, 255)],
         max_density: args.mid_density * args.mid_density / min_density,
         min_density,
+    };
+    let chain_color = DensityColorMap {
+        palette: [RGBColor(0, 0, 0), RGBColor(0, 0, 0)],
+        max_density: dot_color.max_density,
+        min_density: dot_color.min_density,
     };
     let annot_color = AnnotationColorMap {
         palette: args
@@ -707,6 +753,7 @@ fn main() {
         target.name(),
         query.as_ref().map(|x| x.name()),
         &dot_color,
+        &chain_color,
         &annot_color,
         &appearance,
     );

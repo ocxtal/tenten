@@ -18,6 +18,7 @@ pub enum SeedToken {
     NewTarget(SequenceRange),
     NewQuery(SequenceRange),
     Seed(String, usize, bool, String, usize),
+    ChainAnchor(String, usize, bool, String, usize),
 }
 
 impl<T> SeedParser<T>
@@ -61,6 +62,9 @@ where
     fn parse_seed_mm2(&self, line: &str) -> Option<SeedToken> {
         // SD      chr1_mat     159     +       31480   15      0
         let cols = line.trim().split('\t').collect::<Vec<_>>();
+        assert!(cols.len() == 7, "{:?}", line);
+        assert!(cols[3] == "-" || cols[3] == "+");
+
         let rname = cols[1].to_string();
         let rpos = cols[2].parse::<usize>().unwrap();
         let is_rev = cols[3] == "-";
@@ -74,6 +78,27 @@ where
         };
 
         Some(SeedToken::Seed(rname, rpos, is_rev, qname, qpos))
+    }
+
+    fn parse_chain_mm2(&self, line: &str) -> Option<SeedToken> {
+        // CN      0       chr1_mat     159     +       31480   15      0
+        let cols = line.trim().split('\t').collect::<Vec<_>>();
+        assert!(cols.len() == 8, "{:?}", line);
+        assert!(cols[4] == "-" || cols[4] == "+");
+
+        let rname = cols[2].to_string();
+        let rpos = cols[3].parse::<usize>().unwrap();
+        let is_rev = cols[4] == "-";
+        let qname = self.query_cache.clone().unwrap();
+        let qpos = cols[5].parse::<usize>().unwrap();
+
+        let (rname, rpos, qname, qpos) = if self.swap {
+            (qname, qpos, rname, rpos)
+        } else {
+            (rname, rpos, qname, qpos)
+        };
+
+        Some(SeedToken::ChainAnchor(rname, rpos, is_rev, qname, qpos))
     }
 
     fn parse_seq(is_query: bool, line: &str) -> Option<SeedToken> {
@@ -132,7 +157,9 @@ where
                 return self.parse_query_mm2(line);
             } else if line.starts_with("SD") {
                 return self.parse_seed_mm2(line);
-            } else if line.starts_with("CN") || line.starts_with("QM") || line.starts_with("QT") || line.starts_with("RS") {
+            } else if line.starts_with("CN") {
+                return self.parse_chain_mm2(line);
+            } else if line.starts_with("QM") || line.starts_with("QT") || line.starts_with("RS") {
                 // ignore
             } else if let Some(body) = line.strip_prefix("#ref\t") {
                 return Self::parse_seq(self.swap, body);
@@ -143,5 +170,62 @@ where
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ok(line: &str) -> std::io::Result<String> {
+        Ok(line.to_string())
+    }
+
+    #[test]
+    fn parses_chain_anchor() {
+        let lines = vec![ok("QR\tquery\t0\t1000"), ok("CN\t0\tchr1\t100\t+\t200\t15\t0")];
+        let mut parser = SeedParser::new(lines.into_iter(), false);
+        assert!(matches!(parser.next(), Some(SeedToken::NewQuery(_))));
+
+        match parser.next() {
+            Some(SeedToken::ChainAnchor(rname, rpos, is_rev, qname, qpos)) => {
+                assert_eq!(rname, "chr1");
+                assert_eq!(rpos, 100);
+                assert!(!is_rev);
+                assert_eq!(qname, "query");
+                assert_eq!(qpos, 200);
+            }
+            token => panic!("unexpected token: {token:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_reverse_chain_anchor() {
+        let lines = vec![ok("QR\tquery\t0\t1000"), ok("CN\t0\tchr1\t100\t-\t200\t15\t0")];
+        let mut parser = SeedParser::new(lines.into_iter(), false);
+        assert!(matches!(parser.next(), Some(SeedToken::NewQuery(_))));
+
+        match parser.next() {
+            Some(SeedToken::ChainAnchor(_, _, is_rev, _, _)) => assert!(is_rev),
+            token => panic!("unexpected token: {token:?}"),
+        }
+    }
+
+    #[test]
+    fn swaps_chain_anchor() {
+        let lines = vec![ok("QR\tquery\t0\t1000"), ok("CN\t0\tchr1\t100\t+\t200\t15\t0")];
+        let mut parser = SeedParser::new(lines.into_iter(), true);
+        assert!(matches!(parser.next(), Some(SeedToken::NewTarget(_))));
+
+        match parser.next() {
+            Some(SeedToken::ChainAnchor(rname, rpos, is_rev, qname, qpos)) => {
+                assert_eq!(rname, "query");
+                assert_eq!(rpos, 200);
+                assert!(!is_rev);
+                assert_eq!(qname, "chr1");
+                assert_eq!(qpos, 100);
+            }
+            token => panic!("unexpected token: {token:?}"),
+        }
     }
 }

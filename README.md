@@ -65,6 +65,12 @@ Specifying `-P` allows you to set options for launching minimap2. In particular,
 $ tenten -P "minimap2 -t1 -xmap-ont -k10 -w1 --print-seeds {0} {1}" examples/read1.fa examples/read2.fa
 ```
 
+You can specify `--chain-overlay` to overlay minimap2 `--print-chain` anchors on the seed dotplot.
+
+```console
+$ tenten --chain-overlay examples/read1.fa examples/read2.fa
+```
+
 If you provide only one file without `-s`, it is interpreted as a list of seed matches in the `--print-seeds` format. This is useful if you have saved the debug output of minimap2 to a file or if you want to use output from your own tool instead of minimap2.
 
 ```console
@@ -105,6 +111,7 @@ Seed generator options:
   -O, --use-stdout                                   Use stdout of seed generator, instead of stderr
   -s, --self-dotplot                                 Self dotplot. Target sequence is used as query sequence as well
   -x, --swap-generator                               Swap target and query for seed generator
+      --chain-overlay                                Overlay minimap2 --print-chain anchors on the seed dotplot
 
 Plot options:
   -b, --base-per-pixel <INT>  Bases per pixel [default: 100]
@@ -144,7 +151,7 @@ Output options:
 
 ## Limitations
 
-**The `--print-seeds` option of minimap2 is a debug option and is not stabilized**. This means that tenten can break at any time due to updates in minimap2.
+**The `--print-seeds` and `--print-chain` options of minimap2 are debug options and are not stabilized**. This means that tenten can break at any time due to updates in minimap2.
 
 ## Copyright and Licenses
 

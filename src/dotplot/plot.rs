@@ -113,6 +113,7 @@ pub struct DotPlot<'a> {
     pair_to_plane: HashMap<usize, usize>,
     base_per_pixel: usize,
     color_map: DensityColorMap,
+    chain_color_map: Option<DensityColorMap>,
     app: &'a DotPlotAppearance<'a>,
     tot_size: usize,
 }
@@ -137,6 +138,40 @@ impl<'a> DotPlot<'a> {
             pair_to_plane: HashMap::new(),
             base_per_pixel,
             color_map: *color_map,
+            chain_color_map: None,
+            app: appearance,
+            tot_size: 0,
+        };
+        for r in rseq {
+            bin.add_target(r);
+        }
+        for q in qseq {
+            bin.add_query(q);
+        }
+        bin
+    }
+
+    pub fn with_chain(
+        rseq: &[SequenceRange],
+        qseq: &[SequenceRange],
+        base_per_pixel: usize,
+        color_map: &DensityColorMap,
+        chain_color_map: &DensityColorMap,
+        appearance: &'a DotPlotAppearance<'a>,
+    ) -> DotPlot<'a> {
+        log::debug!("DotPlot with chain created");
+        let mut bin = DotPlot {
+            rseq: Vec::new(),
+            qseq: Vec::new(),
+            rmap: HashMap::new(),
+            qmap: HashMap::new(),
+            rdedup: HashSet::new(),
+            qdedup: HashSet::new(),
+            planes: Vec::new(),
+            pair_to_plane: HashMap::new(),
+            base_per_pixel,
+            color_map: *color_map,
+            chain_color_map: Some(*chain_color_map),
             app: appearance,
             tot_size: 0,
         };
@@ -169,6 +204,7 @@ impl<'a> DotPlot<'a> {
                     pair_to_plane: [(0, 0)].into_iter().collect::<HashMap<_, _>>(),
                     base_per_pixel: self.base_per_pixel,
                     color_map: self.color_map,
+                    chain_color_map: self.chain_color_map,
                     app: self.app,
                     tot_size: 0,
                 })
@@ -200,6 +236,7 @@ impl<'a> DotPlot<'a> {
             pair_to_plane,
             base_per_pixel: self.base_per_pixel,
             color_map: self.color_map,
+            chain_color_map: self.chain_color_map,
             app: self.app,
             tot_size: 0,
         }
@@ -258,8 +295,12 @@ impl<'a> DotPlot<'a> {
             let pair_id = (qid << 32) | rid;
             self.pair_to_plane.insert(pair_id, self.planes.len());
 
-            let plane = DotPlane::with_pair_id(r, q, self.base_per_pixel, &self.color_map, pair_id);
-            self.tot_size += plane.cnt.len();
+            let plane = if let Some(chain_color_map) = &self.chain_color_map {
+                DotPlane::with_pair_id_and_chain(r, q, self.base_per_pixel, &self.color_map, chain_color_map, pair_id)
+            } else {
+                DotPlane::with_pair_id(r, q, self.base_per_pixel, &self.color_map, pair_id)
+            };
+            self.tot_size += plane.bytes();
             self.planes.push(plane);
         }
         log::debug!("target added: {:?}, memory: {} bytes", &r.name, self.tot_size);
@@ -282,8 +323,12 @@ impl<'a> DotPlot<'a> {
             let pair_id = (qid << 32) | rid;
             self.pair_to_plane.insert(pair_id, self.planes.len());
 
-            let plane = DotPlane::with_pair_id(r, q, self.base_per_pixel, &self.color_map, pair_id);
-            self.tot_size += plane.cnt.len();
+            let plane = if let Some(chain_color_map) = &self.chain_color_map {
+                DotPlane::with_pair_id_and_chain(r, q, self.base_per_pixel, &self.color_map, chain_color_map, pair_id)
+            } else {
+                DotPlane::with_pair_id(r, q, self.base_per_pixel, &self.color_map, pair_id)
+            };
+            self.tot_size += plane.bytes();
             self.planes.push(plane);
         }
         log::debug!("query added: {:?}, memory: {} bytes", &q.name, self.tot_size);
@@ -333,6 +378,27 @@ impl<'a> DotPlot<'a> {
                     let pair_id = (qid << 32) | rid;
                     if let Some(&plane_index) = self.pair_to_plane.get(&pair_id) {
                         self.planes[plane_index].append_seed(rpos, qpos, is_rev);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn append_chain_anchor(&mut self, rname: &str, rpos: usize, is_rev: bool, qname: &str, qpos: usize) {
+        if let (Some(rids), Some(qids)) = (self.rmap.get(rname), self.qmap.get(qname)) {
+            for &rid in rids {
+                let rseq = &self.rseq[rid];
+                if !rseq.range.contains(&rpos) {
+                    continue;
+                }
+                for &qid in qids {
+                    let qseq = &self.qseq[qid];
+                    if !qseq.range.contains(&qpos) {
+                        continue;
+                    }
+                    let pair_id = (qid << 32) | rid;
+                    if let Some(&plane_index) = self.pair_to_plane.get(&pair_id) {
+                        self.planes[plane_index].append_chain_anchor(rpos, qpos, is_rev);
                     }
                 }
             }
