@@ -1,6 +1,6 @@
-use crate::dotplot::Direction;
 use crate::dotplot::axis::{Axis, AxisAppearance, Tick};
 use crate::dotplot::layout::{Layout, LayoutElem, RectAnchor};
+use crate::dotplot::{Density, Direction, LINE_DENSITY_SCALE};
 use anyhow::Result;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;
@@ -16,15 +16,15 @@ pub struct DensityColorMap {
 }
 
 impl DensityColorMap {
-    pub(crate) fn to_picker(self, base_per_pixel: f64) -> DensityColorPicker {
-        let expansion = (1000.0 / base_per_pixel).powf(2.0);
-        let max_count = self.max_density * expansion;
-        let min_count = self.min_density * expansion;
+    pub(crate) fn to_picker(self, density: Density) -> DensityColorPicker {
+        let count_per_density = match density {
+            Density::Pixel => 1.0,
+            Density::Line { .. } => LINE_DENSITY_SCALE,
+        };
         DensityColorPicker {
             palette: self.palette,
-            expansion,
-            offset: min_count.log2(),
-            scale: 1.0 / (max_count.log2() - min_count.log2()),
+            offset: (self.min_density * count_per_density).log2(),
+            scale: 1.0 / (self.max_density.log2() - self.min_density.log2()),
         }
     }
 }
@@ -32,14 +32,13 @@ impl DensityColorMap {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DensityColorPicker {
     palette: [RGBColor; 2],
-    expansion: f64,
     offset: f64,
     scale: f64,
 }
 
 impl DensityColorPicker {
-    pub fn get_color(&self, palette_index: usize, count: u32) -> RGBAColor {
-        let intensity = self.scale * ((self.expansion * count as f64).log2() - self.offset);
+    pub fn get_color(&self, palette_index: usize, count: f64) -> RGBAColor {
+        let intensity = self.scale * (count.log2() - self.offset);
         self.palette[palette_index].mix(intensity.clamp(0.0, 1.0))
     }
 }
@@ -108,19 +107,31 @@ impl AnnotationColorPicker {
 #[derive(Clone)]
 pub struct ColorScale<'a> {
     len: u32,
-    color_map: DensityColorMap,
+    picker: DensityColorPicker,
+    min_density: f64,
+    density_ratio: f64,
+    count_per_density: f64,
+    unit: &'static str,
     axis: Axis,
     app: &'a AxisAppearance<'a>,
 }
 
 impl<'a> ColorScale<'a> {
-    pub fn new(color_map: &'_ DensityColorMap, desired_length: usize, appearance: &'a AxisAppearance) -> ColorScale<'a> {
+    pub fn new(color_map: &'_ DensityColorMap, density: Density, desired_length: usize, appearance: &'a AxisAppearance) -> ColorScale<'a> {
         let desired_length = desired_length as u32;
         let axis = Axis::new(1, desired_length / 4);
         let len = axis.label_period * axis.pitch_in_bases;
+        let (min_density, count_per_density, unit) = match density {
+            Density::Pixel => (1.0, 1.0, "/kbp^2"),
+            Density::Line { .. } => (color_map.min_density, LINE_DENSITY_SCALE, "/kbp"),
+        };
         ColorScale {
             len,
-            color_map: *color_map,
+            picker: color_map.to_picker(density),
+            min_density,
+            density_ratio: color_map.max_density / min_density,
+            count_per_density,
+            unit,
             axis,
             app: appearance,
         }
@@ -130,6 +141,10 @@ impl<'a> ColorScale<'a> {
         let w = self.len + 1;
         let h = self.app.large_tick_length + self.app.axis_thickness + self.app.label_setback + self.app.label_style.font.get_size() as u32;
         (w, h)
+    }
+
+    fn density_at(&self, fraction: f64) -> f64 {
+        self.min_density * self.density_ratio.powf(fraction)
     }
 }
 
@@ -162,7 +177,7 @@ where
             Direction::Down,
             &self.axis,
             self.app,
-            |i, _| format!("{:.1}", self.color_map.max_density.powf(i as f64 / self.len as f64)),
+            |i, _| format!("{:.1}", self.density_at(i as f64 / self.len as f64)),
         );
         let len = ticks.last().unwrap().tick_start.0;
         let width = len as u32 + 1;
@@ -196,13 +211,12 @@ where
         let rv_shift = |(x, y): (i32, i32)| shift((rv_x + x + 1, rv_y + y));
 
         let height = self.app.large_tick_length as i32;
-        let picker = self.color_map.to_picker(self.axis.base_per_pixel as f64);
         for i in 0..len {
-            let cnt = self.color_map.max_density.powf(i as f64 / len as f64);
-            let cf = picker.get_color(0, cnt as u32).color();
+            let cnt = (self.density_at(i as f64 / len as f64) * self.count_per_density).floor();
+            let cf = self.picker.get_color(0, cnt).color();
             backend.draw_rect(fw_shift((i, 0)), fw_shift((i + 1, height)), &cf, true)?;
 
-            let cr = picker.get_color(1, cnt as u32).color();
+            let cr = self.picker.get_color(1, cnt).color();
             backend.draw_rect(rv_shift((i, 0)), rv_shift((i + 1, height)), &cr, true)?;
         }
 
@@ -213,7 +227,7 @@ where
             tick.tick_start.1 -= adj;
         }
         if let Some(tick) = ticks.last_mut() {
-            tick.label = format!("{}/kbp^2", &tick.label);
+            tick.label = format!("{}{}", &tick.label, self.unit);
             tick.tick_start.1 -= adj;
         }
 

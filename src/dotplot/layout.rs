@@ -497,7 +497,7 @@ pub(crate) fn build_plot_layout(dotplot: &DotPlot, hide_scale: bool) -> Layout {
         2 * appearance.desired_tick_pitch as usize,
         &scale_appearance,
     );
-    let color_scale = ColorScale::new(dotplot.color_map(), 250, &scale_appearance);
+    let color_scale = ColorScale::new(dotplot.color_map(), dotplot.density(), 250, &scale_appearance);
 
     let mut center = Vec::new();
     if hide_scale {

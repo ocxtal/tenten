@@ -51,6 +51,12 @@ pub enum OrthogonalNameLabel {
     Both,
 }
 
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum DensityMode {
+    Pixel,
+    Line,
+}
+
 #[derive(Clone, Debug, Parser)]
 #[command(version)]
 #[command(max_term_width = 160)]
@@ -104,9 +110,27 @@ pub struct Args {
 
     #[clap(
         help_heading = group_plot!(),
+        long,
+        value_enum,
+        help = "Seed density mode: pixel (seeds/kbp^2) or line (seeds/kbp, maximum observed line density in a pixel).\nLine mode requires input compatible with minimap2 --print-seeds output",
+        default_value = "pixel"
+    )]
+    pub density_mode: DensityMode,
+
+    #[clap(
+        help_heading = group_plot!(),
+        long,
+        help = "Diagonal peak-detection bandwidth for --density-mode=line (must be > 0)",
+        value_name = "INT",
+        default_value = "10"
+    )]
+    pub density_bandwidth: usize,
+
+    #[clap(
+        help_heading = group_plot!(),
         short = 'M',
         long,
-        help = "Density of seeds (#per 1kbp square) that corresponds to 50% heatmap scale",
+        help = "Seed density at 50% heatmap scale (seeds/kbp^2 for pixel, seeds/kbp for line)",
         value_name = "FLOAT",
         default_value = "20.0"
     )]
@@ -116,7 +140,7 @@ pub struct Args {
         help_heading = group_plot!(),
         short = 'm',
         long,
-        help = "Density of seeds (#per 1kbp square) that corresponds to 0% heatmap scale",
+        help = "Seed density at 0% heatmap scale (seeds/kbp^2 for pixel, seeds/kbp for line)",
         value_name = "FLOAT",
         default_value = "0.1"
     )]
@@ -337,6 +361,9 @@ struct Context<'a> {
     basename: String,
     rseq: Vec<SequenceRange>,
     qseq: Vec<SequenceRange>,
+    query_lengths: Vec<Option<usize>>,
+    query_map: HashMap<String, Vec<usize>>,
+    density: Density,
     dotplot: DotPlot<'a>,
     dot_color: &'a DensityColorMap,
     chain_color: &'a DensityColorMap,
@@ -357,24 +384,45 @@ impl<'a> Context<'a> {
         annot_color: &'a AnnotationColorMap,
         appearance: &'a DotPlotAppearance<'a>,
     ) -> Self {
-        let (rseq, qseq) = if let Some(query) = query {
-            let rseq = load_sequence_range(target, RangeFormat::Fasta).unwrap();
-            let qseq = load_sequence_range(query, RangeFormat::Fasta).unwrap();
-            (rseq, qseq)
-        } else {
-            (Vec::new(), Vec::new())
+        let (mut rseq, mut qseq, query_lengths) = {
+            let (rseq, qseq) = if let Some(query) = query {
+                (
+                    load_sequence_range(target, RangeFormat::Fasta).unwrap(),
+                    load_sequence_range(query, RangeFormat::Fasta).unwrap(),
+                )
+            } else {
+                (Vec::new(), Vec::new())
+            };
+            let source_query = if args.swap_generator { &rseq } else { &qseq };
+            let lengths = source_query
+                .iter()
+                .map(|seq| (seq.name.clone(), seq.range.end))
+                .collect::<HashMap<_, _>>();
+            let rseq = if let Some(target_range) = &args.target_range {
+                load_sequence_range(target_range, args.target_range_format).unwrap()
+            } else {
+                rseq
+            };
+            let qseq = if let Some(query_range) = &args.query_range {
+                load_sequence_range(query_range, args.query_range_format).unwrap()
+            } else {
+                qseq
+            };
+            let source_query = if args.swap_generator { &rseq } else { &qseq };
+            let query_lengths = source_query.iter().map(|seq| lengths.get(&seq.name).copied()).collect::<Vec<_>>();
+            (rseq, qseq, query_lengths)
         };
-
-        let mut rseq = if let Some(target_range) = &args.target_range {
-            load_sequence_range(target_range, args.target_range_format).unwrap()
-        } else {
-            rseq
+        let density = match args.density_mode {
+            DensityMode::Pixel => Density::Pixel,
+            DensityMode::Line => Density::Line {
+                bandwidth: args.density_bandwidth,
+            },
         };
-        let mut qseq = if let Some(query_range) = &args.query_range {
-            load_sequence_range(query_range, args.query_range_format).unwrap()
-        } else {
-            qseq
-        };
+        let source_query = if args.swap_generator { &rseq } else { &qseq };
+        let mut query_map = HashMap::<String, Vec<usize>>::new();
+        for (i, range) in source_query.iter().enumerate() {
+            query_map.entry(range.name.clone()).or_default().push(i);
+        }
 
         if let Some(ref re) = args.target_extractor {
             let extractor = LabelExtractor::new(re);
@@ -388,8 +436,6 @@ impl<'a> Context<'a> {
                 extractor.patch_sequence(seq);
             }
         }
-
-        let (rseq, qseq) = if args.swap_generator { (qseq, rseq) } else { (rseq, qseq) };
 
         log::debug!("target ranges: {rseq:?}");
         log::debug!("query ranges: {qseq:?}");
@@ -415,17 +461,38 @@ impl<'a> Context<'a> {
         log::debug!("target annotations: {rannot:?}");
         log::debug!("query annotations: {qannot:?}");
 
-        let mut dotplot = if args.chain_overlay {
-            DotPlot::with_chain(&rseq, &qseq, args.base_per_pixel, dot_color, chain_color, appearance)
+        let dotplot = if args.chain_overlay {
+            DotPlot::with_chain(
+                &rseq,
+                &qseq,
+                args.base_per_pixel,
+                dot_color,
+                chain_color,
+                appearance,
+                &query_lengths,
+                args.swap_generator,
+                density,
+            )
         } else {
-            DotPlot::new(&rseq, &qseq, args.base_per_pixel, dot_color, appearance)
+            DotPlot::new(
+                &rseq,
+                &qseq,
+                args.base_per_pixel,
+                dot_color,
+                appearance,
+                &query_lengths,
+                args.swap_generator,
+                density,
+            )
         };
-        dotplot.add_annotation(&rannot, &qannot, annot_color);
         Context {
             suffix,
             basename,
             rseq,
             qseq,
+            query_lengths,
+            query_map,
+            density,
             dotplot,
             dot_color,
             chain_color,
@@ -509,8 +576,10 @@ impl<'a> Context<'a> {
     }
 
     fn flush(&mut self) {
+        self.dotplot.finish_seeds();
+        self.dotplot.add_annotation(&self.rannot, &self.qannot, self.annot_color);
         let new_dotplot = || {
-            let mut dotplot = if self.args.chain_overlay {
+            if self.args.chain_overlay {
                 DotPlot::with_chain(
                     &self.rseq,
                     &self.qseq,
@@ -518,12 +587,22 @@ impl<'a> Context<'a> {
                     self.dot_color,
                     self.chain_color,
                     self.appearance,
+                    &self.query_lengths,
+                    self.args.swap_generator,
+                    self.density,
                 )
             } else {
-                DotPlot::new(&self.rseq, &self.qseq, self.args.base_per_pixel, self.dot_color, self.appearance)
-            };
-            dotplot.add_annotation(&self.rannot, &self.qannot, self.annot_color);
-            dotplot
+                DotPlot::new(
+                    &self.rseq,
+                    &self.qseq,
+                    self.args.base_per_pixel,
+                    self.dot_color,
+                    self.appearance,
+                    &self.query_lengths,
+                    self.args.swap_generator,
+                    self.density,
+                )
+            }
         };
         let dotplot = std::mem::replace(&mut self.dotplot, new_dotplot());
         let dotplot = if self.args.swap_plot_axes { dotplot.swap_axes() } else { dotplot };
@@ -541,8 +620,10 @@ impl<'a> Context<'a> {
         if self.args.split_plot && self.args.sorted && self.dotplot.has_plane() {
             self.flush();
         }
-        if self.rseq.is_empty() {
-            self.dotplot.add_target(r);
+        if self.args.swap_generator {
+            self.register_query(r);
+        } else if self.rseq.is_empty() {
+            self.dotplot.add_target(r, None);
         }
     }
 
@@ -550,8 +631,37 @@ impl<'a> Context<'a> {
         if self.args.split_plot && self.args.sorted && self.dotplot.has_plane() {
             self.flush();
         }
-        if self.qseq.is_empty() {
-            self.dotplot.add_query(q);
+        if !self.args.swap_generator {
+            self.register_query(q);
+        } else if self.qseq.is_empty() {
+            self.dotplot.add_query(q, None);
+        }
+    }
+
+    fn register_query(&mut self, query: &SequenceRange) {
+        self.dotplot.finish_seeds();
+        let length = query.range.end;
+        let ranges = if self.args.swap_generator { &self.rseq } else { &self.qseq };
+        if ranges.is_empty() {
+            if self.args.swap_generator {
+                self.dotplot.add_target(query, Some(length));
+            } else {
+                self.dotplot.add_query(query, Some(length));
+            }
+        } else if let Some(indices) = self.query_map.get(&query.name) {
+            for &i in indices {
+                if let Some(known) = self.query_lengths[i] {
+                    assert_eq!(known, length);
+                } else {
+                    self.query_lengths[i] = Some(length);
+                    let range = &ranges[i];
+                    if self.args.swap_generator {
+                        self.dotplot.add_target(range, Some(length));
+                    } else {
+                        self.dotplot.add_query(range, Some(length));
+                    }
+                }
+            }
         }
     }
 
@@ -564,6 +674,13 @@ impl<'a> Context<'a> {
     }
 
     fn append_seed(&mut self, rname: &str, rpos: usize, is_rev: bool, qname: &str, qpos: usize) {
+        let query_name = if self.args.swap_generator { rname } else { qname };
+        if let Some(indices) = self.query_map.get(query_name) {
+            assert!(
+                self.query_lengths[indices[0]].is_some(),
+                "query length must be supplied before seeds"
+            );
+        }
         self.dotplot.append_seed(rname, rpos, is_rev, qname, qpos);
     }
 

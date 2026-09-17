@@ -2,6 +2,7 @@ mod axis;
 mod color;
 mod hit;
 mod layout;
+mod line;
 mod plane;
 mod plot;
 mod sequence;
@@ -18,6 +19,14 @@ use plotters_backend::DrawingBackend;
 pub use sequence::{RangeFormat, SequenceRange, load_sequence_range};
 
 use crate::dotplot::layout::{Layout, StructuredDrawingArea, build_plot_layout};
+
+pub(crate) const LINE_DENSITY_SCALE: f64 = 1024.0;
+
+#[derive(Copy, Clone, Debug)]
+pub enum Density {
+    Pixel,
+    Line { bandwidth: usize },
+}
 
 #[derive(Copy, Clone, Debug)]
 pub enum Direction {
@@ -48,7 +57,7 @@ where
         2 * appearance.desired_tick_pitch as usize,
         &scale_appearance,
     );
-    let color_scale = ColorScale::new(dotplot.color_map(), 250, &scale_appearance);
+    let color_scale = ColorScale::new(dotplot.color_map(), dotplot.density(), 250, &scale_appearance);
 
     if let Some(area) = areas.get_area("dotplot") {
         area.draw(dotplot)?;

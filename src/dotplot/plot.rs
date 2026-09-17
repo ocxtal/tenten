@@ -2,13 +2,13 @@
 // @author Hajime Suzuki
 // @brief dotplot plotter
 
-use crate::dotplot::Direction;
 use crate::dotplot::axis::{Axis, AxisAppearance, Tick};
 use crate::dotplot::color::{AnnotationColorMap, DensityColorMap};
 use crate::dotplot::hit::{DotPlotHitContext, SequencePosition};
 use crate::dotplot::layout::{Layout, LayoutElem, LayoutMargin, RectAnchor};
 use crate::dotplot::plane::DotPlane;
 use crate::dotplot::sequence::SequenceRange;
+use crate::dotplot::{Density, Direction};
 use anyhow::Result;
 use plotters::element::{Drawable, PointCollection};
 use plotters::prelude::*;
@@ -114,6 +114,10 @@ pub struct DotPlot<'a> {
     base_per_pixel: usize,
     color_map: DensityColorMap,
     chain_color_map: Option<DensityColorMap>,
+    density: Density,
+    query_lengths: Vec<usize>,
+    query_on_x: bool,
+    current_query: Option<String>,
     app: &'a DotPlotAppearance<'a>,
     tot_size: usize,
 }
@@ -125,30 +129,21 @@ impl<'a> DotPlot<'a> {
         base_per_pixel: usize,
         color_map: &DensityColorMap,
         appearance: &'a DotPlotAppearance<'a>,
+        query_lengths: &[Option<usize>],
+        query_on_x: bool,
+        density: Density,
     ) -> DotPlot<'a> {
-        log::debug!("DotPlot created");
-        let mut bin = DotPlot {
-            rseq: Vec::new(),
-            qseq: Vec::new(),
-            rmap: HashMap::new(),
-            qmap: HashMap::new(),
-            rdedup: HashSet::new(),
-            qdedup: HashSet::new(),
-            planes: Vec::new(),
-            pair_to_plane: HashMap::new(),
+        Self::create(
+            rseq,
+            qseq,
             base_per_pixel,
-            color_map: *color_map,
-            chain_color_map: None,
-            app: appearance,
-            tot_size: 0,
-        };
-        for r in rseq {
-            bin.add_target(r);
-        }
-        for q in qseq {
-            bin.add_query(q);
-        }
-        bin
+            color_map,
+            None,
+            appearance,
+            query_lengths,
+            query_on_x,
+            density,
+        )
     }
 
     pub fn with_chain(
@@ -158,8 +153,36 @@ impl<'a> DotPlot<'a> {
         color_map: &DensityColorMap,
         chain_color_map: &DensityColorMap,
         appearance: &'a DotPlotAppearance<'a>,
+        query_lengths: &[Option<usize>],
+        query_on_x: bool,
+        density: Density,
     ) -> DotPlot<'a> {
-        log::debug!("DotPlot with chain created");
+        Self::create(
+            rseq,
+            qseq,
+            base_per_pixel,
+            color_map,
+            Some(*chain_color_map),
+            appearance,
+            query_lengths,
+            query_on_x,
+            density,
+        )
+    }
+
+    fn create(
+        rseq: &[SequenceRange],
+        qseq: &[SequenceRange],
+        base_per_pixel: usize,
+        color_map: &DensityColorMap,
+        chain_color_map: Option<DensityColorMap>,
+        appearance: &'a DotPlotAppearance<'a>,
+        query_lengths: &[Option<usize>],
+        query_on_x: bool,
+        density: Density,
+    ) -> DotPlot<'a> {
+        log::debug!("DotPlot created");
+        assert_eq!(query_lengths.len(), if query_on_x { rseq.len() } else { qseq.len() });
         let mut bin = DotPlot {
             rseq: Vec::new(),
             qseq: Vec::new(),
@@ -171,15 +194,31 @@ impl<'a> DotPlot<'a> {
             pair_to_plane: HashMap::new(),
             base_per_pixel,
             color_map: *color_map,
-            chain_color_map: Some(*chain_color_map),
+            chain_color_map,
+            density,
+            query_lengths: Vec::new(),
+            query_on_x,
+            current_query: None,
             app: appearance,
             tot_size: 0,
         };
-        for r in rseq {
-            bin.add_target(r);
+        for (i, r) in rseq.iter().enumerate() {
+            if query_on_x {
+                if let Some(length) = query_lengths[i] {
+                    bin.add_target(r, Some(length));
+                }
+            } else {
+                bin.add_target(r, None);
+            }
         }
-        for q in qseq {
-            bin.add_query(q);
+        for (i, q) in qseq.iter().enumerate() {
+            if !query_on_x {
+                if let Some(length) = query_lengths[i] {
+                    bin.add_query(q, Some(length));
+                }
+            } else {
+                bin.add_query(q, None);
+            }
         }
         bin
     }
@@ -205,6 +244,10 @@ impl<'a> DotPlot<'a> {
                     base_per_pixel: self.base_per_pixel,
                     color_map: self.color_map,
                     chain_color_map: self.chain_color_map,
+                    density: self.density,
+                    query_lengths: vec![self.query_lengths[if self.query_on_x { rid } else { qid }]],
+                    query_on_x: self.query_on_x,
+                    current_query: self.current_query.clone(),
                     app: self.app,
                     tot_size: 0,
                 })
@@ -237,6 +280,10 @@ impl<'a> DotPlot<'a> {
             base_per_pixel: self.base_per_pixel,
             color_map: self.color_map,
             chain_color_map: self.chain_color_map,
+            density: self.density,
+            query_lengths: self.query_lengths.clone(),
+            query_on_x: !self.query_on_x,
+            current_query: self.current_query.clone(),
             app: self.app,
             tot_size: 0,
         }
@@ -265,6 +312,10 @@ impl<'a> DotPlot<'a> {
         &self.color_map
     }
 
+    pub fn density(&self) -> Density {
+        self.density
+    }
+
     pub fn appearance(&'a self) -> &'a DotPlotAppearance<'a> {
         self.app
     }
@@ -278,7 +329,8 @@ impl<'a> DotPlot<'a> {
         )
     }
 
-    pub fn add_target(&mut self, r: &SequenceRange) {
+    pub fn add_target(&mut self, r: &SequenceRange, query_length: Option<usize>) {
+        assert_eq!(query_length.is_some(), self.query_on_x);
         if !self.rdedup.insert(r.to_string()) {
             return;
         }
@@ -290,23 +342,18 @@ impl<'a> DotPlot<'a> {
             self.rmap.insert(r.name.to_string(), vec![rid]);
         }
         self.rseq.push(r.clone());
+        if let Some(length) = query_length {
+            self.query_lengths.push(length);
+        }
 
-        for (qid, q) in self.qseq.iter().enumerate() {
-            let pair_id = (qid << 32) | rid;
-            self.pair_to_plane.insert(pair_id, self.planes.len());
-
-            let plane = if let Some(chain_color_map) = &self.chain_color_map {
-                DotPlane::with_pair_id_and_chain(r, q, self.base_per_pixel, &self.color_map, chain_color_map, pair_id)
-            } else {
-                DotPlane::with_pair_id(r, q, self.base_per_pixel, &self.color_map, pair_id)
-            };
-            self.tot_size += plane.bytes();
-            self.planes.push(plane);
+        for qid in 0..self.qseq.len() {
+            self.create_plane(rid, qid);
         }
         log::debug!("target added: {:?}, memory: {} bytes", &r.name, self.tot_size);
     }
 
-    pub fn add_query(&mut self, q: &SequenceRange) {
+    pub fn add_query(&mut self, q: &SequenceRange, query_length: Option<usize>) {
+        assert_eq!(query_length.is_some(), !self.query_on_x);
         if !self.qdedup.insert(q.to_string()) {
             return;
         }
@@ -318,20 +365,48 @@ impl<'a> DotPlot<'a> {
             self.qmap.insert(q.name.to_string(), vec![qid]);
         }
         self.qseq.push(q.clone());
+        if let Some(length) = query_length {
+            self.query_lengths.push(length);
+        }
 
-        for (rid, r) in self.rseq.iter().enumerate() {
-            let pair_id = (qid << 32) | rid;
-            self.pair_to_plane.insert(pair_id, self.planes.len());
-
-            let plane = if let Some(chain_color_map) = &self.chain_color_map {
-                DotPlane::with_pair_id_and_chain(r, q, self.base_per_pixel, &self.color_map, chain_color_map, pair_id)
-            } else {
-                DotPlane::with_pair_id(r, q, self.base_per_pixel, &self.color_map, pair_id)
-            };
-            self.tot_size += plane.bytes();
-            self.planes.push(plane);
+        for rid in 0..self.rseq.len() {
+            self.create_plane(rid, qid);
         }
         log::debug!("query added: {:?}, memory: {} bytes", &q.name, self.tot_size);
+    }
+
+    fn create_plane(&mut self, rid: usize, qid: usize) {
+        let pair_id = (qid << 32) | rid;
+        let query_length = self.query_lengths[if self.query_on_x { rid } else { qid }];
+        let r = &self.rseq[rid];
+        let q = &self.qseq[qid];
+        let plane = if let Some(chain_color_map) = &self.chain_color_map {
+            DotPlane::with_pair_id_and_chain(
+                r,
+                q,
+                self.base_per_pixel,
+                &self.color_map,
+                chain_color_map,
+                pair_id,
+                query_length,
+                self.query_on_x,
+                self.density,
+            )
+        } else {
+            DotPlane::with_pair_id(
+                r,
+                q,
+                self.base_per_pixel,
+                &self.color_map,
+                pair_id,
+                query_length,
+                self.query_on_x,
+                self.density,
+            )
+        };
+        self.pair_to_plane.insert(pair_id, self.planes.len());
+        self.tot_size += plane.bytes();
+        self.planes.push(plane);
     }
 
     pub fn add_annotation(&mut self, r: &[SequenceRange], q: &[SequenceRange], color_map: &AnnotationColorMap) {
@@ -364,42 +439,53 @@ impl<'a> DotPlot<'a> {
     }
 
     pub fn append_seed(&mut self, rname: &str, rpos: usize, is_rev: bool, qname: &str, qpos: usize) {
-        if let (Some(rids), Some(qids)) = (self.rmap.get(rname), self.qmap.get(qname)) {
-            for &rid in rids {
-                let rseq = &self.rseq[rid];
-                if !rseq.range.contains(&rpos) {
-                    continue;
-                }
-                for &qid in qids {
-                    let qseq = &self.qseq[qid];
-                    if !qseq.range.contains(&qpos) {
-                        continue;
-                    }
-                    let pair_id = (qid << 32) | rid;
-                    if let Some(&plane_index) = self.pair_to_plane.get(&pair_id) {
-                        self.planes[plane_index].append_seed(rpos, qpos, is_rev);
-                    }
+        let query_name = if self.query_on_x { rname } else { qname };
+        if self.current_query.as_deref() != Some(query_name) {
+            self.finish_seeds();
+            self.current_query = Some(query_name.to_string());
+        }
+        self.for_each_seed_plane(rname, rpos, qname, qpos, |plane| plane.append_seed(rpos, qpos, is_rev));
+    }
+
+    pub fn append_chain_anchor(&mut self, rname: &str, rpos: usize, is_rev: bool, qname: &str, qpos: usize) {
+        self.for_each_seed_plane(rname, rpos, qname, qpos, |plane| plane.append_chain_anchor(rpos, qpos, is_rev));
+    }
+
+    pub fn finish_seeds(&mut self) {
+        let Some(name) = self.current_query.take() else {
+            return;
+        };
+        let (query_map, target_count) = if self.query_on_x {
+            (&self.rmap, self.qseq.len())
+        } else {
+            (&self.qmap, self.rseq.len())
+        };
+        if let Some(qids) = query_map.get(&name) {
+            for &qid in qids {
+                for tid in 0..target_count {
+                    let pair_id = if self.query_on_x { (tid << 32) | qid } else { (qid << 32) | tid };
+                    let plane_index = self.pair_to_plane[&pair_id];
+                    self.planes[plane_index].finish_seeds();
                 }
             }
         }
     }
 
-    pub fn append_chain_anchor(&mut self, rname: &str, rpos: usize, is_rev: bool, qname: &str, qpos: usize) {
-        if let (Some(rids), Some(qids)) = (self.rmap.get(rname), self.qmap.get(qname)) {
-            for &rid in rids {
-                let rseq = &self.rseq[rid];
-                if !rseq.range.contains(&rpos) {
+    fn for_each_seed_plane(&mut self, rname: &str, rpos: usize, qname: &str, qpos: usize, mut append: impl FnMut(&mut DotPlane)) {
+        let (tname, tpos, qname, tmap, qmap, tseq) = if self.query_on_x {
+            (qname, qpos, rname, &self.qmap, &self.rmap, &self.qseq)
+        } else {
+            (rname, rpos, qname, &self.rmap, &self.qmap, &self.rseq)
+        };
+        if let (Some(tids), Some(qids)) = (tmap.get(tname), qmap.get(qname)) {
+            for &tid in tids {
+                if !tseq[tid].range.contains(&tpos) {
                     continue;
                 }
                 for &qid in qids {
-                    let qseq = &self.qseq[qid];
-                    if !qseq.range.contains(&qpos) {
-                        continue;
-                    }
-                    let pair_id = (qid << 32) | rid;
-                    if let Some(&plane_index) = self.pair_to_plane.get(&pair_id) {
-                        self.planes[plane_index].append_chain_anchor(rpos, qpos, is_rev);
-                    }
+                    let pair_id = if self.query_on_x { (tid << 32) | qid } else { (qid << 32) | tid };
+                    let plane_index = self.pair_to_plane[&pair_id];
+                    append(&mut self.planes[plane_index]);
                 }
             }
         }
