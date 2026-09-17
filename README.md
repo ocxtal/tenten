@@ -71,6 +71,12 @@ You can specify `--chain-overlay` to overlay minimap2 `--print-chain` anchors on
 $ tenten --chain-overlay examples/read1.fa examples/read2.fa
 ```
 
+Use `--color-mode=stainedglass` to produce a plot with StainedGlass-compatible coloring.
+
+```console
+$ tenten --color-mode=stainedglass -s examples/read1.fa
+```
+
 If you provide only one file without `-s`, it is interpreted as a list of seed matches in the `--print-seeds` format. This is useful if you have saved the debug output of minimap2 to a file or if you want to use output from your own tool instead of minimap2.
 
 ```console
@@ -114,13 +120,18 @@ Seed generator options:
       --chain-overlay                                Overlay minimap2 --print-chain anchors on the seed dotplot
 
 Plot options:
-  -b, --base-per-pixel <INT>  Bases per pixel [default: 100]
-  -M, --mid-density <FLOAT>   Density of seeds (#per 1kbp square) that corresponds to 50% heatmap scale [default: 20.0]
-  -m, --min-density <FLOAT>   Density of seeds (#per 1kbp square) that corresponds to 0% heatmap scale [default: 0.1]
-  -c, --min-count <INT>       Do not output image if #seed is less than this value [default: 0]
-  -X, --swap-plot-axes        Swap x/y axes of the output plots
-      --hide-scale            Hide scale bars
-      --font-size <INT>       Font size for labels [default: 12]
+  -b, --base-per-pixel <INT>         Bases per pixel [default: 100]
+      --color-mode <COLOR_MODE>      Color mode: default (red/blue for forward/reverse), or stainedglass [default: default] [possible values: default,
+                                     stainedglass]
+      --density-mode <DENSITY_MODE>  Seed density mode: pixel (seeds/kbp^2) or line (seeds/kbp, maximum observed line density in a pixel).
+                                     Line mode requires input compatible with minimap2 --print-seeds output [default: pixel] [possible values: pixel, line]
+      --density-bandwidth <INT>      Diagonal peak-detection bandwidth for --density-mode=line (must be > 0) [default: 10]
+  -M, --mid-density <FLOAT>          Seed density at 50% heatmap scale (seeds/kbp^2 for pixel, seeds/kbp for line) [default: 20.0]
+  -m, --min-density <FLOAT>          Seed density at 0% heatmap scale (seeds/kbp^2 for pixel, seeds/kbp for line) [default: 0.1]
+  -c, --min-count <INT>              Do not output image if #seed is less than this value [default: 0]
+  -X, --swap-plot-axes               Swap x/y axes of the output plots
+      --hide-scale                   Hide scale bars
+      --font-size <INT>              Font size for labels [default: 12]
 
 Range/label options:
   -t, --target-range <FILE>           Plot seeds only in the ranges in the file. Seeds outside the ranges are ignored. Accepts BED or "chr7:6000000-6300000"

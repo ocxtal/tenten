@@ -8,40 +8,108 @@ use plotters_backend::{BackendStyle, DrawingErrorKind};
 use regex::Regex;
 use std::collections::HashMap;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum ColorMode {
+    #[default]
+    Default,
+    StainedGlass,
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum DirectionMode {
+    #[default]
+    Separate,
+    Max,
+}
+
+impl DirectionMode {
+    pub(crate) fn channels(self) -> usize {
+        match self {
+            Self::Separate => 2,
+            Self::Max => 1,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default)]
 pub struct DensityColorMap {
+    pub color_mode: ColorMode,
+    pub direction_mode: DirectionMode,
     pub palette: [RGBColor; 2],
     pub max_density: f64,
     pub min_density: f64,
 }
 
 impl DensityColorMap {
-    pub(crate) fn to_picker(self, density: Density) -> DensityColorPicker {
+    fn coefficients(&self, density: Density) -> (f64, f64) {
         let count_per_density = match density {
             Density::Pixel => 1.0,
             Density::Line { .. } => LINE_DENSITY_SCALE,
         };
-        DensityColorPicker {
-            palette: self.palette,
-            offset: (self.min_density * count_per_density).log2(),
-            scale: 1.0 / (self.max_density.log2() - self.min_density.log2()),
-        }
+        (
+            (self.min_density * count_per_density).log2(),
+            1.0 / (self.max_density.log2() - self.min_density.log2()),
+        )
     }
 }
 
-#[derive(Clone, Debug, Default)]
+pub(crate) trait ColorPicker {
+    fn get_color(&self, count: f64) -> RGBAColor;
+}
+
 pub(crate) struct DensityColorPicker {
-    palette: [RGBColor; 2],
+    color: RGBColor,
     offset: f64,
     scale: f64,
 }
 
 impl DensityColorPicker {
-    pub fn get_color(&self, palette_index: usize, count: f64) -> RGBAColor {
-        let intensity = self.scale * (count.log2() - self.offset);
-        self.palette[palette_index].mix(intensity.clamp(0.0, 1.0))
+    pub fn new(map: &DensityColorMap, density: Density, color: RGBColor) -> Self {
+        let (offset, scale) = map.coefficients(density);
+        Self { color, offset, scale }
     }
 }
+
+impl ColorPicker for DensityColorPicker {
+    fn get_color(&self, count: f64) -> RGBAColor {
+        let intensity = self.scale * (count.log2() - self.offset);
+        self.color.mix(intensity.clamp(0.0, 1.0))
+    }
+}
+
+#[derive(Copy, Clone)]
+pub(crate) struct StainedGlassColorPicker {
+    offset: f64,
+    scale: f64,
+}
+
+impl StainedGlassColorPicker {
+    pub fn new(map: &DensityColorMap, density: Density) -> Self {
+        let (offset, scale) = map.coefficients(density);
+        Self { offset, scale }
+    }
+}
+
+impl ColorPicker for StainedGlassColorPicker {
+    fn get_color(&self, count: f64) -> RGBAColor {
+        let t = (self.scale * (count.log2() - self.offset)).clamp(0.0, 1.0);
+        STAINED_GLASS_PALETTE[((t * 11.0) as usize).min(10)].mix(1.0)
+    }
+}
+
+const STAINED_GLASS_PALETTE: [RGBColor; 11] = [
+    RGBColor(94, 79, 162),
+    RGBColor(50, 136, 189),
+    RGBColor(102, 194, 165),
+    RGBColor(171, 221, 164),
+    RGBColor(230, 245, 152),
+    RGBColor(255, 255, 191),
+    RGBColor(254, 224, 139),
+    RGBColor(253, 174, 97),
+    RGBColor(244, 109, 67),
+    RGBColor(213, 62, 79),
+    RGBColor(158, 1, 66),
+];
 
 #[derive(Clone, Debug)]
 pub struct AnnotationColorMap {
@@ -107,7 +175,8 @@ impl AnnotationColorPicker {
 #[derive(Clone)]
 pub struct ColorScale<'a> {
     len: u32,
-    picker: DensityColorPicker,
+    color_map: DensityColorMap,
+    density: Density,
     min_density: f64,
     density_ratio: f64,
     count_per_density: f64,
@@ -122,12 +191,21 @@ impl<'a> ColorScale<'a> {
         let axis = Axis::new(1, desired_length / 4);
         let len = axis.label_period * axis.pitch_in_bases;
         let (min_density, count_per_density, unit) = match density {
-            Density::Pixel => (1.0, 1.0, "/kbp^2"),
+            Density::Pixel => (
+                if color_map.color_mode == ColorMode::Default {
+                    1.0
+                } else {
+                    color_map.min_density
+                },
+                1.0,
+                "/kbp^2",
+            ),
             Density::Line { .. } => (color_map.min_density, LINE_DENSITY_SCALE, "/kbp"),
         };
         ColorScale {
             len,
-            picker: color_map.to_picker(density),
+            color_map: *color_map,
+            density,
             min_density,
             density_ratio: color_map.max_density / min_density,
             count_per_density,
@@ -140,6 +218,11 @@ impl<'a> ColorScale<'a> {
     pub fn get_dim(&self) -> (u32, u32) {
         let w = self.len + 1;
         let h = self.app.large_tick_length + self.app.axis_thickness + self.app.label_setback + self.app.label_style.font.get_size() as u32;
+        let h = if self.color_map.direction_mode == DirectionMode::Max {
+            h + self.app.large_tick_length
+        } else {
+            h
+        };
         (w, h)
     }
 
@@ -157,16 +240,13 @@ impl<'a> PointCollection<'a, (i32, i32)> for &'a ColorScale<'_> {
     }
 }
 
-impl<DB> Drawable<DB> for ColorScale<'_>
-where
-    DB: DrawingBackend,
-{
-    fn draw<I>(&self, pos: I, backend: &mut DB, _: (u32, u32)) -> Result<(), DrawingErrorKind<DB::ErrorType>>
-    where
-        I: Iterator<Item = (i32, i32)>,
-    {
-        let mut pos = pos;
-        let pos = pos.next().unwrap();
+impl ColorScale<'_> {
+    fn draw_scale<P: ColorPicker, DB: DrawingBackend>(
+        &self,
+        pos: (i32, i32),
+        backend: &mut DB,
+        pickers: &[P],
+    ) -> Result<(), DrawingErrorKind<DB::ErrorType>> {
         let shift = |(x, y): (i32, i32)| (pos.0 + x, pos.1 + y);
 
         // first build ticks (to determine actual width)
@@ -212,17 +292,28 @@ where
 
         let height = self.app.large_tick_length as i32;
         for i in 0..len {
-            let cnt = (self.density_at(i as f64 / len as f64) * self.count_per_density).floor();
-            let cf = self.picker.get_color(0, cnt).color();
+            let cnt = self.density_at(i as f64 / len as f64) * self.count_per_density;
+            let cnt = if self.color_map.color_mode == ColorMode::Default {
+                cnt.floor()
+            } else {
+                cnt
+            };
+            let cf = pickers[0].get_color(cnt).color();
             backend.draw_rect(fw_shift((i, 0)), fw_shift((i + 1, height)), &cf, true)?;
 
-            let cr = self.picker.get_color(1, cnt).color();
-            backend.draw_rect(rv_shift((i, 0)), rv_shift((i + 1, height)), &cr, true)?;
+            if let Some(picker) = pickers.get(1) {
+                let cr = picker.get_color(cnt).color();
+                backend.draw_rect(rv_shift((i, 0)), rv_shift((i + 1, height)), &cr, true)?;
+            }
         }
 
         // draw ticks
         let mut ticks = ticks;
-        let adj = self.app.large_tick_length as i32 + self.app.axis_thickness as i32;
+        let adj = if pickers.len() == 2 {
+            self.app.large_tick_length as i32 + self.app.axis_thickness as i32
+        } else {
+            0
+        };
         if let Some(tick) = ticks.first_mut() {
             tick.tick_start.1 -= adj;
         }
@@ -257,5 +348,31 @@ where
             true,
         )?;
         Ok(())
+    }
+}
+
+impl<DB> Drawable<DB> for ColorScale<'_>
+where
+    DB: DrawingBackend,
+{
+    fn draw<I>(&self, pos: I, backend: &mut DB, _: (u32, u32)) -> Result<(), DrawingErrorKind<DB::ErrorType>>
+    where
+        I: Iterator<Item = (i32, i32)>,
+    {
+        let pos = pos.into_iter().next().unwrap();
+        match self.color_map.color_mode {
+            ColorMode::Default => {
+                let pickers = self
+                    .color_map
+                    .palette
+                    .map(|color| DensityColorPicker::new(&self.color_map, self.density, color));
+                self.draw_scale(pos, backend, &pickers[..self.color_map.direction_mode.channels()])
+            }
+            ColorMode::StainedGlass => {
+                let picker = StainedGlassColorPicker::new(&self.color_map, self.density);
+                let pickers = [picker; 2];
+                self.draw_scale(pos, backend, &pickers[..self.color_map.direction_mode.channels()])
+            }
+        }
     }
 }

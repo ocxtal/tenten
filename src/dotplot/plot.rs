@@ -471,6 +471,12 @@ impl<'a> DotPlot<'a> {
         }
     }
 
+    pub fn preprocess_counts(&mut self) {
+        for plane in &mut self.planes {
+            plane.preprocess_counts();
+        }
+    }
+
     fn for_each_seed_plane(&mut self, rname: &str, rpos: usize, qname: &str, qpos: usize, mut append: impl FnMut(&mut DotPlane)) {
         let (tname, tpos, qname, tmap, qmap, tseq) = if self.query_on_x {
             (qname, qpos, rname, &self.qmap, &self.rmap, &self.qseq)

@@ -9,7 +9,7 @@ mod sequence;
 
 use anyhow::Result;
 pub use axis::{AxisAppearance, LengthScale};
-pub use color::{AnnotationColorMap, ColorScale, DensityColorMap};
+pub use color::{AnnotationColorMap, ColorMode, ColorScale, DensityColorMap, DirectionMode};
 pub use hit::{DotPlotHit, PlotHitMap, SequencePosition};
 pub use plane::DotPlane;
 pub use plot::{DotPlot, DotPlotAppearance};
@@ -22,10 +22,13 @@ use crate::dotplot::layout::{Layout, StructuredDrawingArea, build_plot_layout};
 
 pub(crate) const LINE_DENSITY_SCALE: f64 = 1024.0;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub enum Density {
+    #[default]
     Pixel,
-    Line { bandwidth: usize },
+    Line {
+        bandwidth: usize,
+    },
 }
 
 #[derive(Copy, Clone, Debug)]

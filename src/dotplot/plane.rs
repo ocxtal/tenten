@@ -1,4 +1,7 @@
-use crate::dotplot::color::{AnnotationColorMap, AnnotationColorPicker, DensityColorMap, DensityColorPicker};
+use crate::dotplot::color::{
+    AnnotationColorMap, AnnotationColorPicker, ColorMode, ColorPicker, DensityColorMap, DensityColorPicker, DirectionMode,
+    StainedGlassColorPicker,
+};
 use crate::dotplot::line::LineStripe;
 use crate::dotplot::sequence::SequenceRange;
 use crate::dotplot::{Density, LINE_DENSITY_SCALE};
@@ -22,8 +25,9 @@ pub struct DotPlane {
     pub(crate) width: usize,
     pub(crate) height: usize,
     pub(crate) base_per_pixel: usize,
-    picker: DensityColorPicker,
-    chain_picker: Option<DensityColorPicker>,
+    color_map: DensityColorMap,
+    density: Density,
+    chain_color_map: Option<DensityColorMap>,
     annot: Option<DotPlaneAnnotation>,
     pub(crate) pair_id: usize,
 }
@@ -136,8 +140,9 @@ impl DotPlane {
             width,
             height,
             base_per_pixel,
-            picker: color_map.to_picker(density),
-            chain_picker: None,
+            color_map: *color_map,
+            density,
+            chain_color_map: None,
             annot: None,
             pair_id,
         }
@@ -156,7 +161,7 @@ impl DotPlane {
     ) -> DotPlane {
         let mut plane = Self::with_pair_id(r, q, base_per_pixel, color_map, pair_id, query_length, query_on_x, density);
         plane.chain_cnt = Some(vec![[0, 0]; plane.cnt.len()]);
-        plane.chain_picker = Some(chain_color_map.to_picker(Density::Pixel));
+        plane.chain_color_map = Some(*chain_color_map);
         plane
     }
 
@@ -184,8 +189,9 @@ impl DotPlane {
             width: self.height,
             height: self.width,
             base_per_pixel: self.base_per_pixel,
-            picker: self.picker.clone(),
-            chain_picker: self.chain_picker.clone(),
+            color_map: self.color_map,
+            density: self.density,
+            chain_color_map: self.chain_color_map,
             annot: self.annot.as_ref().map(|x| x.swap_axes()),
             pair_id,
         }
@@ -222,6 +228,31 @@ impl DotPlane {
 
     pub fn finish_seeds(&mut self) {
         (self.seed_ops.finish)(self);
+    }
+
+    pub fn preprocess_counts(&mut self) {
+        if self.color_map.direction_mode == DirectionMode::Max {
+            for cnt in &mut self.cnt {
+                *cnt = [cnt[0].max(cnt[1]), 0];
+            }
+        }
+    }
+
+    fn draw_counts<P: ColorPicker, DB: DrawingBackend>(
+        &self,
+        counts: &[[u32; 2]],
+        pickers: &[P],
+        pos: (i32, i32),
+        backend: &mut DB,
+    ) -> Result<(), DrawingErrorKind<DB::ErrorType>> {
+        for (y, line) in counts.chunks(self.width).rev().enumerate() {
+            for (x, cnt) in line.iter().enumerate() {
+                for (count, picker) in cnt.iter().zip(pickers) {
+                    backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), picker.get_color(*count as f64).color())?;
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn get_seed_count(&self) -> usize {
@@ -399,27 +430,25 @@ where
             }
         }
 
-        // then plot dots
-        for (y, line) in self.cnt.chunks(self.width).rev().enumerate() {
-            for (x, cnt) in line.iter().enumerate() {
-                let cf = self.picker.get_color(0, cnt[0] as f64).color();
-                backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), cf)?;
-
-                let cr = self.picker.get_color(1, cnt[1] as f64).color();
-                backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), cr)?;
+        let channels = self.color_map.direction_mode.channels();
+        match self.color_map.color_mode {
+            ColorMode::Default => {
+                let pickers = self
+                    .color_map
+                    .palette
+                    .map(|color| DensityColorPicker::new(&self.color_map, self.density, color));
+                self.draw_counts(&self.cnt, &pickers[..channels], pos, backend)?;
+            }
+            ColorMode::StainedGlass => {
+                let picker = StainedGlassColorPicker::new(&self.color_map, self.density);
+                let pickers = [picker; 2];
+                self.draw_counts(&self.cnt, &pickers[..channels], pos, backend)?;
             }
         }
 
-        if let (Some(chain_cnt), Some(chain_picker)) = (&self.chain_cnt, &self.chain_picker) {
-            for (y, line) in chain_cnt.chunks(self.width).rev().enumerate() {
-                for (x, cnt) in line.iter().enumerate() {
-                    let cf = chain_picker.get_color(0, cnt[0] as f64).color();
-                    backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), cf)?;
-
-                    let cr = chain_picker.get_color(1, cnt[1] as f64).color();
-                    backend.draw_pixel((pos.0 + x as i32, pos.1 + y as i32), cr)?;
-                }
-            }
+        if let (Some(chain_cnt), Some(map)) = (&self.chain_cnt, &self.chain_color_map) {
+            let pickers = map.palette.map(|color| DensityColorPicker::new(map, Density::Pixel, color));
+            self.draw_counts(chain_cnt, &pickers, pos, backend)?;
         }
         Ok(())
     }
@@ -441,6 +470,8 @@ mod tests {
 
     fn color_map() -> DensityColorMap {
         DensityColorMap {
+            color_mode: ColorMode::Default,
+            direction_mode: DirectionMode::Separate,
             palette: [RGBColor(255, 0, 64), RGBColor(0, 64, 255)],
             max_density: 400.0,
             min_density: 0.1,
@@ -449,6 +480,8 @@ mod tests {
 
     fn chain_color_map() -> DensityColorMap {
         DensityColorMap {
+            color_mode: ColorMode::Default,
+            direction_mode: DirectionMode::Separate,
             palette: [RGBColor(0, 0, 0), RGBColor(0, 0, 0)],
             max_density: 400.0,
             min_density: 0.1,
@@ -459,7 +492,7 @@ mod tests {
     fn seed_only_constructor_does_not_allocate_chain_counts() {
         let plane = DotPlane::with_pair_id(&seq("r", 100), &seq("q", 100), 10, &color_map(), 7, 100, false, Density::Pixel);
         assert!(plane.chain_cnt.is_none());
-        assert!(plane.chain_picker.is_none());
+        assert!(plane.chain_color_map.is_none());
     }
 
     #[test]
@@ -476,7 +509,7 @@ mod tests {
             Density::Pixel,
         );
         assert_eq!(plane.chain_cnt.as_ref().unwrap().len(), 100);
-        assert!(plane.chain_picker.is_some());
+        assert!(plane.chain_color_map.is_some());
     }
 
     #[test]

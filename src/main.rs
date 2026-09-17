@@ -57,6 +57,13 @@ pub enum DensityMode {
     Line,
 }
 
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum ColorModeArg {
+    Default,
+    #[value(name = "stainedglass")]
+    StainedGlass,
+}
+
 #[derive(Clone, Debug, Parser)]
 #[command(version)]
 #[command(max_term_width = 160)]
@@ -107,6 +114,9 @@ pub struct Args {
 
     #[clap(help_heading = group_plot!(), short = 'b', long, help = "Bases per pixel", value_name = "INT", default_value = "100")]
     pub base_per_pixel: usize,
+
+    #[clap(help_heading = group_plot!(), long, value_enum, default_value = "default", help = "Color mode: default (red/blue for forward/reverse), or stainedglass")]
+    pub color_mode: ColorModeArg,
 
     #[clap(
         help_heading = group_plot!(),
@@ -577,6 +587,7 @@ impl<'a> Context<'a> {
 
     fn flush(&mut self) {
         self.dotplot.finish_seeds();
+        self.dotplot.preprocess_counts();
         self.dotplot.add_annotation(&self.rannot, &self.qannot, self.annot_color);
         let new_dotplot = || {
             if self.args.chain_overlay {
@@ -789,12 +800,20 @@ fn main() {
     let stream = std::io::BufReader::new(stream);
 
     let min_density = args.min_density.max(0.000001);
+    let (color_mode, direction_mode) = match args.color_mode {
+        ColorModeArg::Default => (ColorMode::Default, DirectionMode::Separate),
+        ColorModeArg::StainedGlass => (ColorMode::StainedGlass, DirectionMode::Max),
+    };
     let dot_color = DensityColorMap {
+        color_mode,
+        direction_mode,
         palette: [RGBColor(255, 0, 64), RGBColor(0, 64, 255)],
         max_density: args.mid_density * args.mid_density / min_density,
         min_density,
     };
     let chain_color = DensityColorMap {
+        color_mode: ColorMode::Default,
+        direction_mode: DirectionMode::Separate,
         palette: [RGBColor(0, 0, 0), RGBColor(0, 0, 0)],
         max_density: dot_color.max_density,
         min_density: dot_color.min_density,
