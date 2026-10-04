@@ -36,7 +36,7 @@ impl SeedGeneratorCommand {
         assert!(consumed.iter().all(|&x| x));
         log::info!("executing seed generator: {cmd}");
 
-        let cmd = cmd.split(" ").collect::<Vec<_>>();
+        let cmd = cmd.split_whitespace().collect::<Vec<_>>();
         let (child, output) = if use_stdout {
             let mut child = Command::new(cmd[0])
                 .args(&cmd[1..])
